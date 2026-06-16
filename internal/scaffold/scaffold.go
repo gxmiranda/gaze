@@ -61,13 +61,13 @@ type Result struct {
 // .opencode/) is a tool-owned file. Tool-owned files use
 // overwrite-on-diff behavior: they are replaced when their
 // content differs from the embedded version, even without --force.
-// User-owned files (agents/, most of command/) retain
+// User-owned files (agents/, most of commands/) retain
 // skip-if-present behavior.
 //
 // Ownership is determined by an explicit list: all files under
 // references/ are tool-owned by directory convention, and specific
 // command files are tool-owned by exact match. This approach is
-// necessary because the command/ directory contains both
+// necessary because the commands/ directory contains both
 // user-owned files (gaze.md) and tool-owned files
 // (speckit.testreview.md).
 func isToolOwned(relPath string) bool {
@@ -75,9 +75,9 @@ func isToolOwned(relPath string) bool {
 		return true
 	}
 	switch relPath {
-	case "command/speckit.testreview.md",
+	case "commands/speckit.testreview.md",
 		"agents/gaze-test-generator.md",
-		"command/gaze-fix.md":
+		"commands/gaze-fix.md":
 		return true
 	}
 	return false
@@ -136,7 +136,7 @@ func insertMarkerAfterFrontmatter(content []byte, marker string) []byte {
 
 // Run scaffolds OpenCode agent, command, and reference files into
 // the target directory. It creates .opencode/agents/,
-// .opencode/command/, and .opencode/references/ subdirectories
+// .opencode/commands/, and .opencode/references/ subdirectories
 // and writes the embedded quality-reporting files.
 //
 // Each file is prepended with a version marker comment:
@@ -241,7 +241,7 @@ func processAssetFile(embeddedPath, relPath string, opts Options, marker string)
 
 // Run scaffolds OpenCode agent, command, and reference files into
 // the target directory. It creates .opencode/agents/,
-// .opencode/command/, and .opencode/references/ subdirectories
+// .opencode/commands/, and .opencode/references/ subdirectories
 // and writes the embedded quality-reporting files.
 //
 // Each file is prepended with a version marker comment:

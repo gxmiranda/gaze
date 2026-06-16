@@ -97,7 +97,7 @@ func newInitCmd() *cobra.Command {
 		Short: "Scaffold OpenCode agents and commands for Gaze",
 		Long: `Initialize OpenCode integration in the current directory.
 
-Creates .opencode/agents/ and .opencode/command/ directories with
+Creates .opencode/agents/ and .opencode/commands/ directories with
 Gaze's quality reporting agent and commands. After running this,
 you can use /gaze in OpenCode to generate quality reports.`,
 		RunE: func(cmd *cobra.Command, args []string) error {

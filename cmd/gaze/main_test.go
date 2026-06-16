@@ -1274,8 +1274,8 @@ func TestRunInit_CreatesFiles(t *testing.T) {
 	expected := []string{
 		".opencode/agents/gaze-reporter.md",
 		".opencode/agents/reviewer-testing.md",
-		".opencode/command/gaze.md",
-		".opencode/command/speckit.testreview.md",
+		".opencode/commands/gaze.md",
+		".opencode/commands/speckit.testreview.md",
 		".opencode/references/doc-scoring-model.md",
 		".opencode/references/example-report.md",
 	}

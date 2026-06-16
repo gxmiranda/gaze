@@ -17,9 +17,9 @@ Gaze OpenCode integration initialized:
   created: .opencode/agents/gaze-reporter.md
   created: .opencode/agents/gaze-test-generator.md
   created: .opencode/agents/reviewer-testing.md
-  created: .opencode/command/gaze.md
-  created: .opencode/command/gaze-fix.md
-  created: .opencode/command/speckit.testreview.md
+  created: .opencode/commands/gaze.md
+  created: .opencode/commands/gaze-fix.md
+  created: .opencode/commands/speckit.testreview.md
   created: .opencode/references/example-report.md
   created: .opencode/references/doc-scoring-model.md
 
@@ -48,9 +48,9 @@ The scaffold creates 8 files organized into three directories:
 
 | File | Description | Ownership |
 |------|-------------|-----------|
-| `command/gaze.md` | `/gaze` command — runs Gaze CLI with `--format=json` and delegates to the gaze-reporter agent for formatting | User-owned |
-| `command/gaze-fix.md` | `/gaze fix` command — batch remediation using the gaze-test-generator agent | Tool-owned |
-| `command/speckit.testreview.md` | `/speckit.testreview` command — read-only spec testability analysis | Tool-owned |
+| `commands/gaze.md` | `/gaze` command — runs Gaze CLI with `--format=json` and delegates to the gaze-reporter agent for formatting | User-owned |
+| `commands/gaze-fix.md` | `/gaze fix` command — batch remediation using the gaze-test-generator agent | Tool-owned |
+| `commands/speckit.testreview.md` | `/speckit.testreview` command — read-only spec testability analysis | Tool-owned |
 
 ### References
 
@@ -63,9 +63,9 @@ The scaffold creates 8 files organized into three directories:
 
 Gaze distinguishes between two ownership models for scaffolded files:
 
-**User-owned files** (`agents/gaze-reporter.md`, `command/gaze.md`) are written once and never overwritten on subsequent `gaze init` runs. You can customize these files — add project-specific instructions, change formatting preferences, adjust the agent's behavior. Your changes are preserved.
+**User-owned files** (`agents/gaze-reporter.md`, `commands/gaze.md`) are written once and never overwritten on subsequent `gaze init` runs. You can customize these files — add project-specific instructions, change formatting preferences, adjust the agent's behavior. Your changes are preserved.
 
-**Tool-owned files** (everything under `references/`, plus `agents/gaze-test-generator.md`, `agents/reviewer-testing.md`, `command/gaze-fix.md`, `command/speckit.testreview.md`) use overwrite-on-diff behavior. When you run `gaze init`, these files are compared against the version embedded in the Gaze binary. If the content differs (e.g., because you upgraded Gaze), the file is silently updated. If the content is identical, the file is skipped. This ensures reference materials and tool-managed agents stay current without requiring `--force`.
+**Tool-owned files** (everything under `references/`, plus `agents/gaze-test-generator.md`, `agents/reviewer-testing.md`, `commands/gaze-fix.md`, `commands/speckit.testreview.md`) use overwrite-on-diff behavior. When you run `gaze init`, these files are compared against the version embedded in the Gaze binary. If the content differs (e.g., because you upgraded Gaze), the file is silently updated. If the content is identical, the file is skipped. This ensures reference materials and tool-managed agents stay current without requiring `--force`.
 
 The `--force` flag overrides both behaviors and overwrites all files unconditionally.
 
@@ -155,7 +155,7 @@ Tool-owned files with changed content are automatically updated. User-owned file
 Gaze OpenCode integration already up to date:
   skipped: .opencode/agents/gaze-reporter.md (already exists)
   updated: .opencode/references/example-report.md (content changed)
-  skipped: .opencode/command/gaze.md (already exists)
+  skipped: .opencode/commands/gaze.md (already exists)
 ```
 
 ## Version Marker

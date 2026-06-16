@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// TestRun_CreatesFiles verifies that gaze init creates exactly 6
+// TestRun_CreatesFiles verifies that gaze init creates exactly 8
 // files (agents, commands, and reference files) in the correct
 // directories when run in an empty project.
 func TestRun_CreatesFiles(t *testing.T) {
@@ -48,8 +48,8 @@ func TestRun_CreatesFiles(t *testing.T) {
 	expected := []string{
 		".opencode/agents/gaze-reporter.md",
 		".opencode/agents/reviewer-testing.md",
-		".opencode/command/gaze.md",
-		".opencode/command/speckit.testreview.md",
+		".opencode/commands/gaze.md",
+		".opencode/commands/speckit.testreview.md",
 		".opencode/references/doc-scoring-model.md",
 		".opencode/references/example-report.md",
 	}
@@ -280,7 +280,7 @@ func TestRun_VersionMarker_Dev(t *testing.T) {
 		// Files with frontmatter must start with "---".
 		// Reference files without frontmatter skip this check.
 		firstLine := strings.SplitN(s, "\n", 2)[0]
-		if strings.HasPrefix(relPath, "agents/") || strings.HasPrefix(relPath, "command/") {
+		if strings.HasPrefix(relPath, "agents/") || strings.HasPrefix(relPath, "commands/") {
 			if firstLine != "---" {
 				t.Errorf("file %s: expected first line %q (frontmatter), got %q", relPath, "---", firstLine)
 			}
@@ -358,7 +358,7 @@ func TestEmbeddedAssetsMatchSource(t *testing.T) {
 }
 
 // TestAssetPaths_Returns8Files verifies the embedded asset manifest
-// contains exactly 6 files.
+// contains exactly 8 files.
 func TestAssetPaths_Returns8Files(t *testing.T) {
 	paths, err := assetPaths()
 	if err != nil {
@@ -369,9 +369,9 @@ func TestAssetPaths_Returns8Files(t *testing.T) {
 		"agents/gaze-reporter.md":         true,
 		"agents/gaze-test-generator.md":   true,
 		"agents/reviewer-testing.md":      true,
-		"command/gaze-fix.md":             true,
-		"command/gaze.md":                 true,
-		"command/speckit.testreview.md":   true,
+		"commands/gaze-fix.md":            true,
+		"commands/gaze.md":                true,
+		"commands/speckit.testreview.md":  true,
 		"references/doc-scoring-model.md": true,
 		"references/example-report.md":    true,
 	}
@@ -435,7 +435,7 @@ func TestRun_OverwriteOnDiff_ToolOwned(t *testing.T) {
 	if err := os.WriteFile(refPath, []byte("modified content\n"), 0o644); err != nil {
 		t.Fatalf("modifying reference file: %v", err)
 	}
-	cmdPath := filepath.Join(dir, ".opencode", "command", "speckit.testreview.md")
+	cmdPath := filepath.Join(dir, ".opencode", "commands", "speckit.testreview.md")
 	if err := os.WriteFile(cmdPath, []byte("modified command\n"), 0o644); err != nil {
 		t.Fatalf("modifying command file: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestRun_OverwriteOnDiff_ToolOwned(t *testing.T) {
 	if readErr != nil {
 		t.Fatalf("reading restored command file: %v", readErr)
 	}
-	embeddedCmd, embErr := assetContent("command/speckit.testreview.md")
+	embeddedCmd, embErr := assetContent("commands/speckit.testreview.md")
 	if embErr != nil {
 		t.Fatalf("reading embedded command asset: %v", embErr)
 	}
@@ -544,7 +544,7 @@ func TestRun_OverwriteOnDiff_SkipsIdentical(t *testing.T) {
 		t.Errorf("expected 0 updated (identical content), got %d: %v", len(result.Updated), result.Updated)
 	}
 
-	// All 7 files should be skipped.
+	// All 8 files should be skipped.
 	if len(result.Skipped) != 8 {
 		t.Errorf("expected 8 skipped, got %d: %v", len(result.Skipped), result.Skipped)
 	}
@@ -557,7 +557,7 @@ func TestRun_OverwriteOnDiff_SkipsIdentical(t *testing.T) {
 	for _, toolOwned := range []string{
 		filepath.Join(".opencode", "references", "doc-scoring-model.md"),
 		filepath.Join(".opencode", "references", "example-report.md"),
-		filepath.Join(".opencode", "command", "speckit.testreview.md"),
+		filepath.Join(".opencode", "commands", "speckit.testreview.md"),
 	} {
 		if !skippedMap[toolOwned] {
 			t.Errorf("expected %s in skipped list", toolOwned)
@@ -577,14 +577,15 @@ func TestIsToolOwned(t *testing.T) {
 		{"references/example-report.md", true},
 		{"references/any-future-file.md", true},
 		// Tool-owned: explicit command files.
-		{"command/speckit.testreview.md", true},
+		{"commands/speckit.testreview.md", true},
+		{"commands/gaze-fix.md", true},
 		// User-owned: agents.
 		{"agents/gaze-reporter.md", false},
 		{"agents/reviewer-testing.md", false},
 		// User-owned: other commands.
-		{"command/gaze.md", false},
+		{"commands/gaze.md", false},
 		// Edge cases.
-		{"command/speckit.analyze.md", false},
+		{"commands/speckit.analyze.md", false},
 		{"references", false},
 	}
 	for _, tc := range cases {

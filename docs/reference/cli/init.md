@@ -26,7 +26,7 @@ The `init` command creates the following directory structure:
 .opencode/
 ├── agents/
 │   └── gaze-reporter.md          # AI agent prompt for quality reporting
-├── command/
+├── commands/
 │   ├── gaze.md                   # /gaze command definition
 │   ├── review-council.md         # /review-council command definition
 │   └── speckit.testreview.md     # /speckit.testreview command definition
@@ -39,8 +39,8 @@ The `init` command creates the following directory structure:
 
 Gaze uses a mixed ownership model for scaffolded files:
 
-- **User-owned files** (`agents/`, `command/gaze.md`): Created once, never overwritten on subsequent `gaze init` runs (unless `--force` is used). Users can customize these files.
-- **Tool-owned files** (`references/`, `command/review-council.md`, `command/speckit.testreview.md`): Updated automatically on `gaze init` if the content has changed. These files are maintained by Gaze and should not be manually edited.
+- **User-owned files** (`agents/`, `commands/gaze.md`): Created once, never overwritten on subsequent `gaze init` runs (unless `--force` is used). Users can customize these files.
+- **Tool-owned files** (`references/`, `commands/review-council.md`, `commands/speckit.testreview.md`): Updated automatically on `gaze init` if the content has changed. These files are maintained by Gaze and should not be manually edited.
 
 ## Configuration Interaction
 
@@ -57,9 +57,9 @@ gaze init
 
 ```
 ✓ Created .opencode/agents/gaze-reporter.md
-✓ Created .opencode/command/gaze.md
-✓ Created .opencode/command/review-council.md
-✓ Created .opencode/command/speckit.testreview.md
+✓ Created .opencode/commands/gaze.md
+✓ Created .opencode/commands/review-council.md
+✓ Created .opencode/commands/speckit.testreview.md
 ✓ Created .opencode/references/gaze-example-output.md
 ✓ Created .opencode/references/gaze-scoring-model.md
 ```
