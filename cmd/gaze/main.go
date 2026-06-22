@@ -22,6 +22,7 @@ import (
 	"github.com/unbound-force/gaze/internal/crap"
 	"github.com/unbound-force/gaze/internal/docscan"
 	"github.com/unbound-force/gaze/internal/loader"
+	"github.com/unbound-force/gaze/internal/provider/goprovider"
 	"github.com/unbound-force/gaze/internal/quality"
 	"github.com/unbound-force/gaze/internal/report"
 	"github.com/unbound-force/gaze/internal/scaffold"
@@ -748,6 +749,8 @@ automatically.`,
 			opts.CRAPThreshold = crapThreshold
 			opts.GazeCRAPThreshold = gazeCrapThreshold
 			opts.Stderr = os.Stderr
+			opts.ComplexityProvider = goprovider.NewComplexityProvider()
+			opts.LineCoverageProvider = goprovider.NewLineCoverageProvider(os.Stderr)
 			return runCrap(crapParams{
 				patterns:        args,
 				format:          format,
@@ -1252,10 +1255,15 @@ func runSelfCheck(p selfCheckParams) error {
 		return fmt.Errorf("finding module root: %w", err)
 	}
 
+	selfOpts := crap.DefaultOptions()
+	selfOpts.Stderr = p.stderr
+	selfOpts.ComplexityProvider = goprovider.NewComplexityProvider()
+	selfOpts.LineCoverageProvider = goprovider.NewLineCoverageProvider(p.stderr)
+
 	cp := crapParams{
 		patterns:        []string{"./..."},
 		format:          p.format,
-		opts:            crap.DefaultOptions(),
+		opts:            selfOpts,
 		maxCrapload:     p.maxCrapload,
 		maxGazeCrapload: p.maxGazeCrapload,
 		moduleDir:       moduleDir,
@@ -1263,7 +1271,6 @@ func runSelfCheck(p selfCheckParams) error {
 		stderr:          p.stderr,
 		thresholdSet:    p.thresholdSet,
 	}
-	cp.opts.Stderr = p.stderr
 
 	doCrap := p.runCrapFunc
 	if doCrap == nil {

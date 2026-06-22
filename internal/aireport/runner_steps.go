@@ -16,6 +16,7 @@ import (
 	"github.com/unbound-force/gaze/internal/crap"
 	"github.com/unbound-force/gaze/internal/docscan"
 	"github.com/unbound-force/gaze/internal/loader"
+	"github.com/unbound-force/gaze/internal/provider/goprovider"
 	"github.com/unbound-force/gaze/internal/quality"
 	"github.com/unbound-force/gaze/internal/report"
 	"github.com/unbound-force/gaze/internal/taxonomy"
@@ -46,6 +47,8 @@ func runCRAPStep(patterns []string, moduleDir string, coverProfile string, stder
 	opts := crap.DefaultOptions()
 	opts.CoverProfile = coverProfile
 	opts.Stderr = stderr
+	opts.ComplexityProvider = goprovider.NewComplexityProvider()
+	opts.LineCoverageProvider = goprovider.NewLineCoverageProvider(stderr)
 	if contractCoverageFunc != nil {
 		opts.ContractCoverageFunc = contractCoverageFunc
 	}
