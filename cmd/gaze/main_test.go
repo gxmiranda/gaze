@@ -1968,7 +1968,7 @@ func TestSC002_GazeCRAPloadMatchBetweenCrapAndReport(t *testing.T) {
 	crapOpts.Stderr = io.Discard
 	ccFunc, _ := crap.BuildContractCoverageFunc([]string{pattern}, moduleDir, io.Discard)
 	if ccFunc != nil {
-		crapOpts.ContractCoverageFunc = ccFunc
+		crapOpts.ContractCoverageFunc = ccFunc //nolint:staticcheck // SA1019: test uses deprecated field for direct BuildContractCoverageFunc path
 	}
 	crapReport, err := crap.Analyze([]string{pattern}, moduleDir, crapOpts)
 	if err != nil {

@@ -458,16 +458,16 @@ func runCrap(p crapParams) error {
 	// ContractCoverageProvider takes precedence over the deprecated
 	// ContractCoverageFunc (D7). When neither is set, construct a
 	// GoContractCoverageProvider for the production path.
-	if p.opts.ContractCoverageProvider == nil && p.opts.ContractCoverageFunc == nil {
+	if p.opts.ContractCoverageProvider == nil && p.opts.ContractCoverageFunc == nil { //nolint:staticcheck // SA1019: checking deprecated field for backward-compat fallback (D7)
 		if p.coverageFunc != nil {
 			// Test override — use the injected coverage function
 			// via the deprecated ContractCoverageFunc path.
 			ccFunc, degradedPkgs := p.coverageFunc(p.patterns, p.moduleDir, p.stderr)
 			if ccFunc != nil {
-				p.opts.ContractCoverageFunc = ccFunc
+				p.opts.ContractCoverageFunc = ccFunc //nolint:staticcheck // SA1019: deprecated field used for test injection (D7)
 			}
 			if len(degradedPkgs) > 0 {
-				p.opts.SSADegradedPackages = degradedPkgs
+				p.opts.SSADegradedPackages = degradedPkgs //nolint:staticcheck // SA1019: deprecated field used for test injection (D7)
 			}
 		} else {
 			// Production path — construct GoContractCoverageProvider.

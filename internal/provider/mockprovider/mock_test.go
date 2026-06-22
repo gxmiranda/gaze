@@ -397,7 +397,7 @@ func TestMockProviders_ProviderPrecedence(t *testing.T) {
 	opts.ComplexityProvider = complexityProvider
 	opts.LineCoverageProvider = coverageProvider
 	opts.ContractCoverageProvider = contractProvider
-	opts.ContractCoverageFunc = deprecatedFunc
+	opts.ContractCoverageFunc = deprecatedFunc //nolint:staticcheck // SA1019: testing deprecated field precedence behavior (D7)
 	opts.Stderr = io.Discard
 
 	rpt, err := crap.Analyze([]string{"./..."}, testdataDir(), opts)
