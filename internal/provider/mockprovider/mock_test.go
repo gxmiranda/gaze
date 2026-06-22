@@ -6,10 +6,12 @@ import (
 	"math"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/unbound-force/gaze/internal/crap"
 	"github.com/unbound-force/gaze/internal/provider/mockprovider"
+	"github.com/unbound-force/gaze/internal/taxonomy"
 )
 
 // testdataDir returns the absolute path to the testdata directory
@@ -433,5 +435,193 @@ func TestMockProviders_ProviderPrecedence(t *testing.T) {
 	// overwrote it.
 	if funcCalled {
 		t.Error("deprecated ContractCoverageFunc was called — provider should take precedence")
+	}
+}
+
+// HIGH 1a: Nil ComplexityProvider guard returns an error.
+func TestAnalyze_NilComplexityProvider(t *testing.T) {
+	opts := crap.DefaultOptions()
+	opts.ComplexityProvider = nil
+	opts.LineCoverageProvider = &mockprovider.MockLineCoverageProvider{}
+	opts.Stderr = io.Discard
+
+	_, err := crap.Analyze([]string{"./..."}, testdataDir(), opts)
+	if err == nil {
+		t.Fatal("expected error for nil ComplexityProvider, got nil")
+	}
+	if !strings.Contains(err.Error(), "ComplexityProvider is required") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "ComplexityProvider is required")
+	}
+}
+
+// HIGH 1b: Nil LineCoverageProvider guard returns an error.
+func TestAnalyze_NilLineCoverageProvider(t *testing.T) {
+	opts := crap.DefaultOptions()
+	opts.ComplexityProvider = &mockprovider.MockComplexityProvider{}
+	opts.LineCoverageProvider = nil
+	opts.Stderr = io.Discard
+
+	_, err := crap.Analyze([]string{"./..."}, testdataDir(), opts)
+	if err == nil {
+		t.Fatal("expected error for nil LineCoverageProvider, got nil")
+	}
+	if !strings.Contains(err.Error(), "LineCoverageProvider is required") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "LineCoverageProvider is required")
+	}
+}
+
+// HIGH 2: MockSideEffectAnalyzer returns configured data and errors.
+func TestMockSideEffectAnalyzer_ReturnsConfiguredData(t *testing.T) {
+	t.Run("returns configured results", func(t *testing.T) {
+		want := []taxonomy.AnalysisResult{
+			{
+				Target: taxonomy.FunctionTarget{
+					Package:  "pkg",
+					Function: "Foo",
+				},
+				SideEffects: []taxonomy.SideEffect{
+					{Type: taxonomy.ReturnValue, Description: "returns int"},
+				},
+			},
+		}
+
+		mock := &mockprovider.MockSideEffectAnalyzer{
+			Results: want,
+		}
+
+		got, err := mock.Analyze("pkg")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("got %d results, want %d", len(got), len(want))
+		}
+		if got[0].Target.Function != "Foo" {
+			t.Errorf("Function = %q, want %q", got[0].Target.Function, "Foo")
+		}
+		if len(got[0].SideEffects) != 1 {
+			t.Fatalf("got %d side effects, want 1", len(got[0].SideEffects))
+		}
+		if got[0].SideEffects[0].Type != taxonomy.ReturnValue {
+			t.Errorf("SideEffect.Type = %q, want %q",
+				got[0].SideEffects[0].Type, taxonomy.ReturnValue)
+		}
+	})
+
+	t.Run("returns configured error", func(t *testing.T) {
+		mock := &mockprovider.MockSideEffectAnalyzer{
+			Err: fmt.Errorf("analysis failed"),
+		}
+
+		_, err := mock.Analyze("pkg")
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "analysis failed") {
+			t.Errorf("error = %q, want substring %q", err.Error(), "analysis failed")
+		}
+	})
+}
+
+// HIGH 3: DegradedPackages from MockContractCoverageProvider flow
+// through to Summary.SSADegradedPackages.
+func TestMockProviders_DegradedPackagesFlowThrough(t *testing.T) {
+	file := sampleFile()
+
+	complexityProvider := &mockprovider.MockComplexityProvider{
+		Results: []crap.FunctionComplexity{
+			{Package: "pkg", Function: "Func1", File: file, Line: 1, Complexity: 5},
+		},
+	}
+	coverageProvider := &mockprovider.MockLineCoverageProvider{
+		Results: []crap.FuncCoverage{
+			{File: file, FuncName: "Func1", StartLine: 1, EndLine: 10, Percentage: 80.0},
+		},
+	}
+
+	contractProvider := &mockprovider.MockContractCoverageProvider{
+		LookupFunc: func(pkg, function string) (crap.ContractCoverageInfo, bool) {
+			return crap.ContractCoverageInfo{Percentage: 50.0}, true
+		},
+		DegradedPackages: []string{"pkg/degraded"},
+	}
+
+	opts := crap.DefaultOptions()
+	opts.ComplexityProvider = complexityProvider
+	opts.LineCoverageProvider = coverageProvider
+	opts.ContractCoverageProvider = contractProvider
+	opts.Stderr = io.Discard
+
+	rpt, err := crap.Analyze([]string{"./..."}, testdataDir(), opts)
+	if err != nil {
+		t.Fatalf("Analyze: %v", err)
+	}
+
+	if len(rpt.Summary.SSADegradedPackages) == 0 {
+		t.Fatal("expected SSADegradedPackages to be populated, got empty")
+	}
+
+	found := false
+	for _, pkg := range rpt.Summary.SSADegradedPackages {
+		if pkg == "pkg/degraded" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("SSADegradedPackages = %v, want to contain %q",
+			rpt.Summary.SSADegradedPackages, "pkg/degraded")
+	}
+}
+
+// MEDIUM 1a: ComplexityProvider error propagates with context wrapping.
+func TestMockProviders_ComplexityProviderError(t *testing.T) {
+	complexityProvider := &mockprovider.MockComplexityProvider{
+		Err: fmt.Errorf("gocyclo not found"),
+	}
+	coverageProvider := &mockprovider.MockLineCoverageProvider{
+		Results: []crap.FuncCoverage{},
+	}
+
+	opts := crap.DefaultOptions()
+	opts.ComplexityProvider = complexityProvider
+	opts.LineCoverageProvider = coverageProvider
+	opts.Stderr = io.Discard
+
+	_, err := crap.Analyze([]string{"./..."}, testdataDir(), opts)
+	if err == nil {
+		t.Fatal("expected error from ComplexityProvider, got nil")
+	}
+	if !strings.Contains(err.Error(), "complexity analysis") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "complexity analysis")
+	}
+	if !strings.Contains(err.Error(), "gocyclo not found") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "gocyclo not found")
+	}
+}
+
+// MEDIUM 1b: LineCoverageProvider error propagates with context wrapping.
+func TestMockProviders_LineCoverageProviderError(t *testing.T) {
+	complexityProvider := &mockprovider.MockComplexityProvider{
+		Results: []crap.FunctionComplexity{},
+	}
+	coverageProvider := &mockprovider.MockLineCoverageProvider{
+		Err: fmt.Errorf("go test timed out"),
+	}
+
+	opts := crap.DefaultOptions()
+	opts.ComplexityProvider = complexityProvider
+	opts.LineCoverageProvider = coverageProvider
+	opts.Stderr = io.Discard
+
+	_, err := crap.Analyze([]string{"./..."}, testdataDir(), opts)
+	if err == nil {
+		t.Fatal("expected error from LineCoverageProvider, got nil")
+	}
+	if !strings.Contains(err.Error(), "line coverage") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "line coverage")
+	}
+	if !strings.Contains(err.Error(), "go test timed out") {
+		t.Errorf("error = %q, want substring %q", err.Error(), "go test timed out")
 	}
 }

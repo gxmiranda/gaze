@@ -2,7 +2,6 @@ package goprovider
 
 import (
 	"fmt"
-	"os"
 
 	"golang.org/x/tools/go/packages"
 
@@ -108,6 +107,9 @@ func (a *GoSideEffectAnalyzer) Analyze(pkgPath string) ([]taxonomy.AnalysisResul
 
 // isMainPkg checks if a package path resolves to package main.
 // Used to auto-detect main packages and include unexported functions.
+//
+// NOTE: keep in sync with internal/crap/contract.go and
+// internal/aireport/runner_steps.go
 func isMainPkg(pkgPath string) bool {
 	cfg := &packages.Config{Mode: packages.NeedName}
 	pkgs, err := packages.Load(cfg, pkgPath)
@@ -117,20 +119,3 @@ func isMainPkg(pkgPath string) bool {
 	return pkgs[0].Name == "main"
 }
 
-// resolveModulePackages loads all module packages from moduleDir for
-// use in classification. Returns nil (not an error) if loading fails,
-// so callers can degrade gracefully.
-func resolveModulePackages(moduleDir string) []*packages.Package {
-	if moduleDir == "" {
-		var err error
-		moduleDir, err = os.Getwd()
-		if err != nil {
-			return nil
-		}
-	}
-	modResult, err := loader.LoadModule(moduleDir)
-	if err != nil {
-		return nil
-	}
-	return modResult.Packages
-}
