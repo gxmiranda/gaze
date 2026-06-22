@@ -42,3 +42,4 @@
 
 - [x] 7.1 Verify all four principles: Accuracy (byte-identical output with Go providers, all tests pass), Minimal Assumptions (no user-facing changes, no new CLI flags or config), Actionable Output (output formats unchanged, reports byte-identical), Testability (each interface independently testable via mocks, universal scoring core testable with synthetic data). Coverage targets: `provider.go` 100% (type definitions), `goprovider/` covered via E2E self-check + compile-time checks, `mockprovider/` 100% unit coverage via task 4.2.
 <!-- spec-review: passed -->
+<!-- code-review: passed -->
