@@ -64,13 +64,17 @@ func (p *GoLineCoverageProvider) Coverage(patterns []string, rootDir string, cov
 // some packages fail but others produce valid coverage data.
 // See design decision D1 in ci-gate-integrity.
 func generateCoverProfile(moduleDir string, patterns []string, stderr io.Writer) (string, error) {
-	tmpFile, err := os.CreateTemp("", "gaze-cover-*.out")
+	profilePath, err := createTempProfile()
 	if err != nil {
-		return "", fmt.Errorf("creating temp cover profile: %w", err)
+		return "", err
 	}
-	profilePath := tmpFile.Name()
-	_ = tmpFile.Close()
+	return runGoTestCoverage(profilePath, moduleDir, patterns, stderr)
+}
 
+// runGoTestCoverage executes go test -coverprofile and returns the
+// profile path. When go test exits non-zero but wrote a usable
+// coverage profile, the partial profile is preserved with a warning.
+func runGoTestCoverage(profilePath, moduleDir string, patterns []string, stderr io.Writer) (string, error) {
 	// Build args for go test. Patterns come from Cobra positional
 	// args (already past flag parsing) and Go package patterns
 	// (e.g., "./...") are syntactically distinct from flags.
@@ -92,14 +96,32 @@ func generateCoverProfile(moduleDir string, patterns []string, stderr io.Writer)
 		// go test -coverprofile writes coverage data per-package
 		// as each completes, so partial profiles are usable even
 		// when later packages fail.
-		profilePath, recoverErr := recoverPartialProfile(profilePath, err, stderr)
-		if recoverErr != nil {
-			return "", fmt.Errorf("go test failed and produced no coverage: %s\n%s", err, string(output))
-		}
-		return profilePath, nil
+		return recoverOrFail(profilePath, err, output, stderr)
 	}
 
 	return profilePath, nil
+}
+
+// recoverOrFail attempts to recover a partial coverage profile after
+// a go test failure. Returns the profile path if recovery succeeds,
+// or a descriptive error if the profile is missing or empty.
+func recoverOrFail(profilePath string, testErr error, output []byte, stderr io.Writer) (string, error) {
+	recovered, recoverErr := recoverPartialProfile(profilePath, testErr, stderr)
+	if recoverErr != nil {
+		return "", fmt.Errorf("go test failed and produced no coverage: %s\n%s", testErr, string(output))
+	}
+	return recovered, nil
+}
+
+// createTempProfile creates a temporary file for the coverage profile.
+func createTempProfile() (string, error) {
+	tmpFile, err := os.CreateTemp("", "gaze-cover-*.out")
+	if err != nil {
+		return "", fmt.Errorf("creating temp cover profile: %w", err)
+	}
+	path := tmpFile.Name()
+	_ = tmpFile.Close()
+	return path, nil
 }
 
 // recoverPartialProfile checks whether a coverage profile exists
