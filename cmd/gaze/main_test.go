@@ -1658,6 +1658,11 @@ func TestSC001_GithubActionsReport(t *testing.T) {
 // TestSC002_ReportStructure verifies that the formatted report contains all
 // four required emoji section markers in order (SC-002).
 func TestSC002_ReportStructure(t *testing.T) {
+	// Clear GITHUB_STEP_SUMMARY to prevent fakeRunnerFunc from
+	// writing fake section headers to the real CI step summary
+	// file (#172).
+	t.Setenv("GITHUB_STEP_SUMMARY", "")
+
 	report := "🔍 CRAP Analysis\n\n📊 Quality\n\n🧪 Classification\n\n🏥 Health\n"
 	var stdout, stderr bytes.Buffer
 	err := runReport(reportParams{
