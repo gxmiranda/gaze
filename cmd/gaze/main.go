@@ -424,9 +424,11 @@ type crapParams struct {
 	// When nil, the production crap.Analyze is called.
 	analyzeFunc func([]string, string, crap.Options) (*crap.Report, error)
 
-	// coverageFunc overrides crap.BuildContractCoverageFunc for testing.
-	// When nil, the production crap.BuildContractCoverageFunc is called.
-	coverageFunc func([]string, string, io.Writer) (func(string, string) (crap.ContractCoverageInfo, bool), []string)
+	// contractProvider overrides the production GoContractCoverageProvider
+	// for testing. When non-nil, it is set on opts.ContractCoverageProvider
+	// before calling crap.Analyze. When nil and no provider is already set,
+	// the production GoContractCoverageProvider is constructed.
+	contractProvider crap.ContractCoverageProvider
 }
 
 func newSchemaCmd() *cobra.Command {
@@ -454,21 +456,10 @@ func runCrap(p crapParams) error {
 	// GazeCRAP scoring via ContractCoverageProvider. This is
 	// best-effort: if quality analysis fails for any package,
 	// GazeCRAP falls back to unavailable.
-	//
-	// ContractCoverageProvider takes precedence over the deprecated
-	// ContractCoverageFunc (D7). When neither is set, construct a
-	// GoContractCoverageProvider for the production path.
-	if p.opts.ContractCoverageProvider == nil && p.opts.ContractCoverageFunc == nil {
-		if p.coverageFunc != nil {
-			// Test override — use the injected coverage function
-			// via the deprecated ContractCoverageFunc path.
-			ccFunc, degradedPkgs := p.coverageFunc(p.patterns, p.moduleDir, p.stderr)
-			if ccFunc != nil {
-				p.opts.ContractCoverageFunc = ccFunc
-			}
-			if len(degradedPkgs) > 0 {
-				p.opts.SSADegradedPackages = degradedPkgs
-			}
+	if p.opts.ContractCoverageProvider == nil {
+		if p.contractProvider != nil {
+			// Test override — use the injected provider.
+			p.opts.ContractCoverageProvider = p.contractProvider
 		} else {
 			// Production path — construct GoContractCoverageProvider.
 			var aiMapperFn quality.AIMapperFunc

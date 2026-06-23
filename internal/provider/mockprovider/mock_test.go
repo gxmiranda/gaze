@@ -397,7 +397,7 @@ func TestMockProviders_ProviderPrecedence(t *testing.T) {
 	opts.ComplexityProvider = complexityProvider
 	opts.LineCoverageProvider = coverageProvider
 	opts.ContractCoverageProvider = contractProvider
-	opts.ContractCoverageFunc = deprecatedFunc
+	opts.ContractCoverageFunc = deprecatedFunc //nolint:staticcheck // intentionally testing that the deprecated fallback is not invoked when ContractCoverageProvider is set
 	opts.Stderr = io.Discard
 
 	rpt, err := crap.Analyze([]string{"./..."}, testdataDir(), opts)

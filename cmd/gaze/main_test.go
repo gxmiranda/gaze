@@ -12,6 +12,7 @@ import (
 
 	"github.com/unbound-force/gaze/internal/aireport"
 	"github.com/unbound-force/gaze/internal/crap"
+	"github.com/unbound-force/gaze/internal/provider/goprovider"
 	"github.com/unbound-force/gaze/internal/taxonomy"
 )
 
@@ -734,9 +735,7 @@ func stubAnalyze(_ []string, _ string, _ crap.Options) (*crap.Report, error) {
 	return stubReport(), nil
 }
 
-func stubCoverageNil(_ []string, _ string, _ io.Writer) (func(string, string) (crap.ContractCoverageInfo, bool), []string) {
-	return nil, nil
-}
+
 
 func TestRunCrap_TextOutput(t *testing.T) {
 	var stdout, stderr bytes.Buffer
@@ -748,7 +747,7 @@ func TestRunCrap_TextOutput(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubAnalyze,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err != nil {
 		t.Fatalf("runCrap returned error: %v", err)
@@ -771,7 +770,7 @@ func TestRunCrap_JSONOutput(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubAnalyze,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err != nil {
 		t.Fatalf("runCrap returned error: %v", err)
@@ -793,7 +792,7 @@ func TestRunCrap_NoCoverageWarning(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubAnalyze,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err != nil {
 		t.Fatalf("runCrap returned error: %v", err)
@@ -814,7 +813,7 @@ func TestRunCrap_ThresholdPass(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubAnalyze,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err != nil {
 		t.Fatalf("expected no error when under threshold, got: %v", err)
@@ -839,7 +838,7 @@ func TestRunCrap_ThresholdBreach(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  overThreshold,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err == nil {
 		t.Fatal("expected error when CRAPload exceeds threshold")
@@ -865,7 +864,7 @@ func TestRunCrap_EmptyPatterns(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  capturingAnalyze,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err != nil {
 		t.Fatalf("runCrap with empty patterns returned error: %v", err)
@@ -906,7 +905,7 @@ func TestRunCrap_ZeroResults_ThresholdSet_ReturnsError(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubEmptyAnalyze,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err == nil {
 		t.Fatal("expected error when zero results and threshold set")
@@ -933,7 +932,7 @@ func TestRunCrap_ZeroResults_NoThreshold_ExitZero(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubEmptyAnalyze,
-		coverageFunc: stubCoverageNil,
+
 	})
 	if err != nil {
 		t.Fatalf("expected nil error when zero results and no threshold, got: %v", err)
@@ -1963,13 +1962,10 @@ func TestSC002_GazeCRAPloadMatchBetweenCrapAndReport(t *testing.T) {
 		t.Fatalf("Getwd: %v", err)
 	}
 
-	// Run gaze crap standalone with BuildContractCoverageFunc.
+	// Run gaze crap standalone with GoContractCoverageProvider.
 	crapOpts := crap.DefaultOptions()
 	crapOpts.Stderr = io.Discard
-	ccFunc, _ := crap.BuildContractCoverageFunc([]string{pattern}, moduleDir, io.Discard)
-	if ccFunc != nil {
-		crapOpts.ContractCoverageFunc = ccFunc
-	}
+	crapOpts.ContractCoverageProvider = goprovider.NewContractCoverageProvider(io.Discard)
 	crapReport, err := crap.Analyze([]string{pattern}, moduleDir, crapOpts)
 	if err != nil {
 		t.Fatalf("crap.Analyze: %v", err)
