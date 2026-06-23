@@ -517,3 +517,14 @@ Formatters: gofmt, goimports.
 - 007-assertion-mapping-depth: Assertion mapping depth improvements — resolveExprRoot (selector/index/builtin unwinding), two-pass matching (direct 75/indirect 65), helper return value tracing (depth-1 SSA verification). Mapping accuracy improved from 73.8% to 78.8% (ratchet floor 76.0%)
 - 006-agent-quality-report-enhancements: Unmapped assertion reasons, gap hints, discarded return details, ambiguous effects expansion in quality reports
 - 005-gaze-opencode-integration: Added `gaze init` subcommand (internal/scaffold), GoReleaser v2 release pipeline, Homebrew cask distribution, OpenCode agent (gaze-reporter) and command (/gaze) files
+
+## Convention Packs
+
+This repository uses convention packs scaffolded by
+unbound-force. Agents MUST read the applicable pack(s)
+before writing or reviewing code.
+
+- `.opencode/uf/packs/default.md`
+- `.opencode/uf/packs/severity.md`
+- `.opencode/uf/packs/content.md`
+- `.opencode/uf/packs/go.md`

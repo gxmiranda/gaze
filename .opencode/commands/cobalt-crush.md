@@ -3,12 +3,9 @@ description: >
   Invoke the Cobalt-Crush developer persona for implementation tasks.
   With arguments: delegates to the cobalt-crush-dev agent. Without
   arguments: detects active workflow and runs /speckit.implement or
-  /opsx:apply.
+  /opsx-apply.
 ---
 <!-- scaffolded by uf vdev -->
-<!-- scaffolded by uf vdev -->
-<!-- scaffolded by uf vdev -->
-<!-- scaffolded by uf vv0.6.1 -->
 
 # Command: /cobalt-crush
 
@@ -64,7 +61,7 @@ implementation command to the `cobalt-crush-dev` agent:
    `.specify/scripts/bash/check-prerequisites.sh --json --paths-only`
    from the repo root. If it succeeds and returns a `FEATURE_DIR`
    with a `tasks.md`, this is a Speckit strategic workflow.
-   Read the full contents of `.opencode/command/speckit.implement.md`
+   Read the full contents of `.opencode/commands/speckit.implement.md`
    and delegate it to the `cobalt-crush-dev` agent via the Task
    tool — pass the command file's instructions as the agent's
    prompt so the agent executes the implementation workflow.
@@ -80,7 +77,7 @@ implementation command to the `cobalt-crush-dev` agent:
    > `<current-branch>`. Run: `git checkout opsx/<name>`"
 
    If on the correct branch, read the full contents of
-   `.opencode/command/opsx-apply.md` and delegate it to the
+   `.opencode/commands/opsx-apply.md` and delegate it to the
    `cobalt-crush-dev` agent via the Task tool — pass the command
    file's instructions as the agent's prompt so the agent
    executes the apply workflow.
@@ -90,9 +87,11 @@ implementation command to the `cobalt-crush-dev` agent:
    > No active implementation context detected. Which workflow
    > should I execute?
    >
+   > - `/unleash` — Autonomous pipeline (parallel swarm,
+   >   recommended for multi-task changes)
    > - `/speckit.implement` — Strategic spec implementation
    >   (requires a feature branch with `specs/NNN-*/tasks.md`)
-   > - `/opsx:apply` — Tactical change implementation
+   > - `/opsx-apply` — Tactical change implementation
    >   (requires an active change in `openspec/changes/`)
 
 ## Branch Safety Guardrails

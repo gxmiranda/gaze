@@ -1,15 +1,15 @@
 ---
-pack_id: go-custom
-language: Go
+pack_id: python-custom
+language: Python
 version: 1.0.0
 ---
 <!-- scaffolded by uf vdev -->
 
-# Custom Rules: Go
+# Custom Rules: Python
 
-Project-specific Go conventions that extend the canonical
-Go convention pack. Rules in this file are loaded alongside
-`go.md` by Cobalt-Crush (during implementation) and
+Project-specific Python conventions that extend the canonical
+Python convention pack. Rules in this file are loaded alongside
+`python.md` by Cobalt-Crush (during implementation) and
 all Divisor persona agents (during review).
 
 Use the `CR-NNN` prefix for all custom rules. Use `[MUST]`,
