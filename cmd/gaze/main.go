@@ -632,8 +632,9 @@ func loadAndCompare(
 
 	cfg := loadGazeConfigBestEffort(moduleDir)
 	opts := crap.CompareOptions{
-		Epsilon:              cfg.Baseline.Epsilon,
-		NewFunctionThreshold: cfg.Baseline.NewFunctionThreshold,
+		Epsilon:                      cfg.Baseline.Epsilon,
+		NewFunctionThreshold:         cfg.Baseline.NewFunctionThreshold,
+		NewFunctionGazeCRAPThreshold: cfg.Baseline.NewFunctionGazeCRAPThreshold,
 	}
 	return crap.Compare(baseline, current, opts), nil
 }

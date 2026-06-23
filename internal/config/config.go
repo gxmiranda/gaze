@@ -64,6 +64,13 @@ type BaselineConfig struct {
 	// function (not in the baseline) is classified as a
 	// violation. Must be > 0. Default: 30.
 	NewFunctionThreshold float64 `yaml:"new_function_threshold"`
+
+	// NewFunctionGazeCRAPThreshold is the GazeCRAP score above
+	// which a new function is classified as a violation. Evaluated
+	// independently from NewFunctionThreshold — either metric
+	// exceeding its threshold triggers a violation. Must be > 0.
+	// Default: 30.
+	NewFunctionGazeCRAPThreshold float64 `yaml:"new_function_gaze_crap_threshold"`
 }
 
 // GazeConfig is the top-level configuration loaded from .gaze.yaml.
@@ -80,9 +87,10 @@ type GazeConfig struct {
 func DefaultConfig() *GazeConfig {
 	return &GazeConfig{
 		Baseline: BaselineConfig{
-			File:                 ".gaze/baseline.json",
-			Epsilon:              0.5,
-			NewFunctionThreshold: 30,
+			File:                         ".gaze/baseline.json",
+			Epsilon:                      0.5,
+			NewFunctionThreshold:         30,
+			NewFunctionGazeCRAPThreshold: 30,
 		},
 		Classification: ClassificationConfig{
 			Thresholds: Thresholds{
@@ -133,6 +141,10 @@ func Load(path string) (*GazeConfig, error) {
 	if cfg.Baseline.NewFunctionThreshold <= 0 {
 		return nil, fmt.Errorf("baseline.new_function_threshold must be > 0, got %g",
 			cfg.Baseline.NewFunctionThreshold)
+	}
+	if cfg.Baseline.NewFunctionGazeCRAPThreshold <= 0 {
+		return nil, fmt.Errorf("baseline.new_function_gaze_crap_threshold must be > 0, got %g",
+			cfg.Baseline.NewFunctionGazeCRAPThreshold)
 	}
 
 	// Validate classification thresholds.
