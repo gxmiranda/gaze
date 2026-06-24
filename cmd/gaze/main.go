@@ -22,6 +22,7 @@ import (
 	"github.com/unbound-force/gaze/internal/crap"
 	"github.com/unbound-force/gaze/internal/docscan"
 	"github.com/unbound-force/gaze/internal/loader"
+	"github.com/unbound-force/gaze/internal/provider/goprovider"
 	"github.com/unbound-force/gaze/internal/quality"
 	"github.com/unbound-force/gaze/internal/report"
 	"github.com/unbound-force/gaze/internal/scaffold"
@@ -423,9 +424,11 @@ type crapParams struct {
 	// When nil, the production crap.Analyze is called.
 	analyzeFunc func([]string, string, crap.Options) (*crap.Report, error)
 
-	// coverageFunc overrides crap.BuildContractCoverageFunc for testing.
-	// When nil, the production crap.BuildContractCoverageFunc is called.
-	coverageFunc func([]string, string, io.Writer) (func(string, string) (crap.ContractCoverageInfo, bool), []string)
+	// contractProvider overrides the production GoContractCoverageProvider
+	// for testing. When non-nil, it is set on opts.ContractCoverageProvider
+	// before calling crap.Analyze. When nil and no provider is already set,
+	// the production GoContractCoverageProvider is constructed.
+	contractProvider crap.ContractCoverageProvider
 }
 
 func newSchemaCmd() *cobra.Command {
@@ -450,17 +453,15 @@ func runCrap(p crapParams) error {
 	}
 
 	// Wire the quality pipeline to provide contract coverage for
-	// GazeCRAP scoring. This is best-effort: if quality analysis
-	// fails for any package, GazeCRAP falls back to unavailable.
-	if p.opts.ContractCoverageFunc == nil {
-		var ccFunc func(string, string) (crap.ContractCoverageInfo, bool)
-		var degradedPkgs []string
-
-		if p.coverageFunc != nil {
-			// Test override — use the injected coverage function.
-			ccFunc, degradedPkgs = p.coverageFunc(p.patterns, p.moduleDir, p.stderr)
+	// GazeCRAP scoring via ContractCoverageProvider. This is
+	// best-effort: if quality analysis fails for any package,
+	// GazeCRAP falls back to unavailable.
+	if p.opts.ContractCoverageProvider == nil {
+		if p.contractProvider != nil {
+			// Test override — use the injected provider.
+			p.opts.ContractCoverageProvider = p.contractProvider
 		} else {
-			// Production path — build AI mapper if requested.
+			// Production path — construct GoContractCoverageProvider.
 			var aiMapperFn quality.AIMapperFunc
 			if p.aiMapper != "" {
 				var aiErr error
@@ -469,16 +470,9 @@ func runCrap(p crapParams) error {
 					return aiErr
 				}
 			}
-			ccFunc, degradedPkgs = crap.BuildContractCoverageFunc(
-				p.patterns, p.moduleDir, p.stderr, aiMapperFn,
+			p.opts.ContractCoverageProvider = goprovider.NewContractCoverageProvider(
+				p.stderr, aiMapperFn,
 			)
-		}
-
-		if ccFunc != nil {
-			p.opts.ContractCoverageFunc = ccFunc
-		}
-		if len(degradedPkgs) > 0 {
-			p.opts.SSADegradedPackages = degradedPkgs
 		}
 	}
 
@@ -748,6 +742,8 @@ automatically.`,
 			opts.CRAPThreshold = crapThreshold
 			opts.GazeCRAPThreshold = gazeCrapThreshold
 			opts.Stderr = os.Stderr
+			opts.ComplexityProvider = goprovider.NewComplexityProvider()
+			opts.LineCoverageProvider = goprovider.NewLineCoverageProvider(os.Stderr)
 			return runCrap(crapParams{
 				patterns:        args,
 				format:          format,
@@ -1252,10 +1248,15 @@ func runSelfCheck(p selfCheckParams) error {
 		return fmt.Errorf("finding module root: %w", err)
 	}
 
+	selfOpts := crap.DefaultOptions()
+	selfOpts.Stderr = p.stderr
+	selfOpts.ComplexityProvider = goprovider.NewComplexityProvider()
+	selfOpts.LineCoverageProvider = goprovider.NewLineCoverageProvider(p.stderr)
+
 	cp := crapParams{
 		patterns:        []string{"./..."},
 		format:          p.format,
-		opts:            crap.DefaultOptions(),
+		opts:            selfOpts,
 		maxCrapload:     p.maxCrapload,
 		maxGazeCrapload: p.maxGazeCrapload,
 		moduleDir:       moduleDir,
@@ -1263,7 +1264,6 @@ func runSelfCheck(p selfCheckParams) error {
 		stderr:          p.stderr,
 		thresholdSet:    p.thresholdSet,
 	}
-	cp.opts.Stderr = p.stderr
 
 	doCrap := p.runCrapFunc
 	if doCrap == nil {
