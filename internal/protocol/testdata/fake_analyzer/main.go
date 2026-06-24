@@ -74,7 +74,7 @@ func main() {
 
 		var req request
 		if err := json.Unmarshal(line, &req); err != nil {
-			fmt.Fprintf(os.Stderr, "fake_analyzer: failed to parse request: %v\n", err)
+			_, _ = fmt.Fprintf(os.Stderr, "fake_analyzer: failed to parse request: %v\n", err)
 			continue
 		}
 
@@ -299,7 +299,7 @@ func handleRequest(req request) response {
 func writeResponse(resp response) {
 	data, err := json.Marshal(resp)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "fake_analyzer: failed to marshal response: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "fake_analyzer: failed to marshal response: %v\n", err)
 		return
 	}
 	fmt.Fprintln(os.Stdout, string(data))

@@ -23,8 +23,7 @@ import (
 // ExternalComplexityProvider implements crap.ComplexityProvider by
 // calling the "complexity" protocol method on an external analyzer.
 type ExternalComplexityProvider struct {
-	client  *protocol.Client
-	timeout context.Context
+	client *protocol.Client
 }
 
 // NewExternalComplexityProvider creates a complexity provider that

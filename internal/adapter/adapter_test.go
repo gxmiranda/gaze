@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 // correctly translates protocol responses to crap.FunctionComplexity.
 func TestExternalComplexityProvider(t *testing.T) {
 	client := mustNewClient(t)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	mustInitialize(t, client)
 
@@ -82,7 +82,7 @@ func TestExternalComplexityProvider(t *testing.T) {
 // correctly translates protocol responses to crap.FuncCoverage.
 func TestExternalLineCoverageProvider(t *testing.T) {
 	client := mustNewClient(t)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	mustInitialize(t, client)
 
@@ -119,7 +119,7 @@ func TestExternalLineCoverageProvider(t *testing.T) {
 // taxonomy.AnalysisResult with Classification attached.
 func TestExternalSideEffectAnalyzer(t *testing.T) {
 	client := mustNewClient(t)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	caps := mustInitialize(t, client)
 
@@ -172,7 +172,7 @@ func TestExternalSideEffectAnalyzer(t *testing.T) {
 // Analyze filters results by package path.
 func TestExternalSideEffectAnalyzer_FiltersByPackage(t *testing.T) {
 	client := mustNewClient(t)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	caps := mustInitialize(t, client)
 
@@ -245,7 +245,7 @@ func TestSessionLifecycle_NoTestMapping(t *testing.T) {
 
 	// Create a client and get capabilities.
 	client := mustNewClient(t)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Use capabilities with test_mapping: false.
 	caps := protocol.Capabilities{
@@ -281,7 +281,7 @@ func TestSessionLifecycle_NoTestMapping(t *testing.T) {
 // computes contract coverage.
 func TestContractCoverageProvider_WithTestMapping(t *testing.T) {
 	client := mustNewClient(t)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	caps := mustInitialize(t, client)
 
@@ -357,7 +357,7 @@ func TestErrorPropagation_ComplexityProtocolError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Initialize succeeds.
 	ctx := context.Background()
