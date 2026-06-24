@@ -24,10 +24,11 @@ import (
 
 // crapStepResult holds the outputs of runCRAPStep.
 type crapStepResult struct {
-	JSON           json.RawMessage
-	CRAPload       int
-	GazeCRAPload   *int
-	TotalFunctions int
+	JSON                json.RawMessage
+	CRAPload            int
+	GazeCRAPload        *int
+	TotalFunctions      int
+	SSADegradedPackages []string
 }
 
 // runCRAPStep runs the CRAP analysis pipeline and returns the JSON output
@@ -66,10 +67,11 @@ func runCRAPStep(patterns []string, moduleDir string, coverProfile string, stder
 	}
 
 	res := &crapStepResult{
-		JSON:           raw,
-		CRAPload:       rpt.Summary.CRAPload,
-		GazeCRAPload:   rpt.Summary.GazeCRAPload,
-		TotalFunctions: rpt.Summary.TotalFunctions,
+		JSON:                raw,
+		CRAPload:            rpt.Summary.CRAPload,
+		GazeCRAPload:        rpt.Summary.GazeCRAPload,
+		TotalFunctions:      rpt.Summary.TotalFunctions,
+		SSADegradedPackages: rpt.Summary.SSADegradedPackages,
 	}
 	return res, nil
 }

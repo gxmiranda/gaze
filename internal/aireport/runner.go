@@ -294,6 +294,11 @@ func runProductionPipeline(patterns []string, moduleDir string, coverProfile str
 		payload.Summary.CRAPload = crapRes.CRAPload
 		payload.Summary.GazeCRAPload = crapRes.GazeCRAPload
 		payload.Summary.TotalFunctions = crapRes.TotalFunctions
+		if len(crapRes.SSADegradedPackages) > 0 {
+			payload.Summary.SSADegraded = true
+			payload.Summary.SSADegradedPackages = append(
+				payload.Summary.SSADegradedPackages, crapRes.SSADegradedPackages...)
+		}
 	}
 
 	// Step 2: Quality analysis.

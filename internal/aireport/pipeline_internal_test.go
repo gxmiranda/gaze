@@ -99,6 +99,41 @@ func TestRunProductionPipeline_AllStepsSucceed(t *testing.T) {
 	}
 }
 
+func TestRunProductionPipeline_CRAPStepSSADegradation(t *testing.T) {
+	var stderr bytes.Buffer
+	steps := fakeSteps()
+	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
+		return &crapStepResult{
+			JSON:                json.RawMessage(`{"crap":"ok"}`),
+			CRAPload:            5,
+			GazeCRAPload:        intPtr(3),
+			TotalFunctions:      20,
+			SSADegradedPackages: []string{"pkg/degraded-from-crap"},
+		}, nil
+	}
+
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	// SSA degradation from CRAP step should propagate to summary.
+	if !payload.Summary.SSADegraded {
+		t.Error("expected SSADegraded=true when CRAP step reports degraded packages")
+	}
+	found := false
+	for _, pkg := range payload.Summary.SSADegradedPackages {
+		if pkg == "pkg/degraded-from-crap" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected SSADegradedPackages to contain 'pkg/degraded-from-crap', got %v",
+			payload.Summary.SSADegradedPackages)
+	}
+}
+
 func TestRunProductionPipeline_CRAPStepFails(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
