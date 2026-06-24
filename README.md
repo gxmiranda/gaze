@@ -201,7 +201,7 @@ Gaze finds analyzers using a three-tier discovery mechanism:
 2. **Config file**: `.gaze.yaml` `analyzers.<language>.command`
 3. **PATH convention**: `gaze-analyzer-<language>` on PATH
 
-### Configuration
+### Analyzer Configuration
 
 Configure analyzers in `.gaze.yaml`:
 

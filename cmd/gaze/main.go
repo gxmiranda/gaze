@@ -624,7 +624,7 @@ func runCrapWithExternalAnalyzer(p crapParams) error {
 	if err != nil {
 		return fmt.Errorf("initializing analyzer: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	_, _ = fmt.Fprintf(p.stderr, "Using external analyzer: %s (language: %s)\n",
 		providers.AnalyzerName, providers.Language)

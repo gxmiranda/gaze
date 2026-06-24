@@ -79,7 +79,7 @@ func (p *ExternalContractCoverageProvider) Build(patterns []string, rootDir stri
 	if err != nil {
 		// Optional method — degrade gracefully (D7).
 		if p.stderr != nil {
-			fmt.Fprintf(p.stderr, "warning: test_mapping failed: %v\n", err)
+			_, _ = fmt.Fprintf(p.stderr, "warning: test_mapping failed: %v\n", err)
 		}
 		return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
 			return crap.ContractCoverageInfo{}, false
@@ -87,7 +87,7 @@ func (p *ExternalContractCoverageProvider) Build(patterns []string, rootDir stri
 	}
 	if resp.Error != nil {
 		if p.stderr != nil {
-			fmt.Fprintf(p.stderr, "warning: test_mapping error: %s\n", resp.Error.Message)
+			_, _ = fmt.Fprintf(p.stderr, "warning: test_mapping error: %s\n", resp.Error.Message)
 		}
 		return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
 			return crap.ContractCoverageInfo{}, false
@@ -97,7 +97,7 @@ func (p *ExternalContractCoverageProvider) Build(patterns []string, rootDir stri
 	var mappingResult protocol.TestMappingResult
 	if err := json.Unmarshal(resp.Result, &mappingResult); err != nil {
 		if p.stderr != nil {
-			fmt.Fprintf(p.stderr, "warning: parsing test_mapping result: %v\n", err)
+			_, _ = fmt.Fprintf(p.stderr, "warning: parsing test_mapping result: %v\n", err)
 		}
 		return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
 			return crap.ContractCoverageInfo{}, false

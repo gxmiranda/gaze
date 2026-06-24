@@ -133,7 +133,7 @@ func convertAnalysisResults(funcs []protocol.AnalyzedFunction, stderr io.Writer)
 
 			// Warn on unknown side effect types (they default to P4).
 			if tier == taxonomy.TierP4 && !isKnownP4(effectType) && stderr != nil {
-				fmt.Fprintf(stderr, "warning: unknown side effect type %q from external analyzer (defaulting to P4)\n", se.Type)
+				_, _ = fmt.Fprintf(stderr, "warning: unknown side effect type %q from external analyzer (defaulting to P4)\n", se.Type)
 			}
 
 			effect := taxonomy.SideEffect{

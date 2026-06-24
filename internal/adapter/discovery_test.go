@@ -62,11 +62,7 @@ func TestDiscover_ConfigLookup(t *testing.T) {
 // (gaze-analyzer-<language>) is used when no flag or config exists.
 func TestDiscover_PATHFallback(t *testing.T) {
 	// Create a temporary directory with a fake binary.
-	tmpDir, err := os.MkdirTemp("", "gaze-discover-test-*")
-	if err != nil {
-		t.Fatalf("creating temp dir: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
+	tmpDir := t.TempDir()
 
 	fakeBin := filepath.Join(tmpDir, "gaze-analyzer-python")
 	if runtime.GOOS == "windows" {

@@ -204,7 +204,7 @@ func TestSessionLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Initialize: %v", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	if providers.AnalyzerName != "fake-analyzer" {
 		t.Errorf("AnalyzerName = %q, want %q", providers.AnalyzerName, "fake-analyzer")
