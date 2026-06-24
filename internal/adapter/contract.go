@@ -61,14 +61,36 @@ func NewExternalContractCoverageProvider(
 // coverage per function. When not supported, returns a no-op lookup.
 func (p *ExternalContractCoverageProvider) Build(patterns []string, rootDir string) (func(pkg, function string) (crap.ContractCoverageInfo, bool), []string, error) {
 	if !p.caps.TestMapping {
-		// No test_mapping capability — return no-op lookup.
-		// GazeCRAP will be unavailable.
-		return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
-			return crap.ContractCoverageInfo{}, false
-		}, nil, nil
+		return noopLookup(), nil, nil
 	}
 
-	// Fetch test mapping data from the analyzer.
+	mappings, err := p.fetchTestMappings(patterns, rootDir)
+	if err != nil {
+		// fetchTestMappings handles graceful degradation (D7)
+		// and returns nil mappings on optional method failure.
+		return noopLookup(), nil, nil
+	}
+
+	allResults, err := p.sideEffects.AllResults()
+	if err != nil {
+		return nil, nil, fmt.Errorf("fetching side effects for contract coverage: %w", err)
+	}
+
+	lookup := buildContractLookup(allResults, mappings)
+	return lookup, nil, nil
+}
+
+// noopLookup returns a contract coverage lookup that always returns
+// (zero, false). Used when test_mapping is unavailable or fails.
+func noopLookup() func(pkg, function string) (crap.ContractCoverageInfo, bool) {
+	return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
+		return crap.ContractCoverageInfo{}, false
+	}
+}
+
+// fetchTestMappings calls the test_mapping protocol method and parses
+// the response. Returns nil on any failure (graceful degradation per D7).
+func (p *ExternalContractCoverageProvider) fetchTestMappings(patterns []string, rootDir string) ([]protocol.AssertionMappingData, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), protocol.AnalysisTimeout)
 	defer cancel()
 
@@ -77,44 +99,27 @@ func (p *ExternalContractCoverageProvider) Build(patterns []string, rootDir stri
 		Patterns: patterns,
 	})
 	if err != nil {
-		// Optional method — degrade gracefully (D7).
-		if p.stderr != nil {
-			_, _ = fmt.Fprintf(p.stderr, "warning: test_mapping failed: %v\n", err)
-		}
-		return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
-			return crap.ContractCoverageInfo{}, false
-		}, nil, nil
+		p.warn("test_mapping failed: %v", err)
+		return nil, err
 	}
 	if resp.Error != nil {
-		if p.stderr != nil {
-			_, _ = fmt.Fprintf(p.stderr, "warning: test_mapping error: %s\n", resp.Error.Message)
-		}
-		return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
-			return crap.ContractCoverageInfo{}, false
-		}, nil, nil
+		p.warn("test_mapping error: %s", resp.Error.Message)
+		return nil, fmt.Errorf("test_mapping: %s", resp.Error.Message)
 	}
 
-	var mappingResult protocol.TestMappingResult
-	if err := json.Unmarshal(resp.Result, &mappingResult); err != nil {
-		if p.stderr != nil {
-			_, _ = fmt.Fprintf(p.stderr, "warning: parsing test_mapping result: %v\n", err)
-		}
-		return func(pkg, function string) (crap.ContractCoverageInfo, bool) {
-			return crap.ContractCoverageInfo{}, false
-		}, nil, nil
+	var result protocol.TestMappingResult
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		p.warn("parsing test_mapping result: %v", err)
+		return nil, err
 	}
+	return result.Mappings, nil
+}
 
-	// Get all analysis results for building the lookup.
-	allResults, err := p.sideEffects.AllResults()
-	if err != nil {
-		return nil, nil, fmt.Errorf("fetching side effects for contract coverage: %w", err)
+// warn emits a warning to stderr if a writer is configured.
+func (p *ExternalContractCoverageProvider) warn(format string, args ...any) {
+	if p.stderr != nil {
+		_, _ = fmt.Fprintf(p.stderr, "warning: "+format+"\n", args...)
 	}
-
-	// Build per-function contract coverage using
-	// quality.ComputeContractCoverage.
-	lookup := buildContractLookup(allResults, mappingResult.Mappings)
-
-	return lookup, nil, nil
 }
 
 // buildContractLookup creates a lookup function that returns

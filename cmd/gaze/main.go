@@ -610,31 +610,14 @@ func runCrap(p crapParams) error {
 // Design decision D5: Three-tier discovery (CLI flag → config → PATH).
 // Design decision D12: Only crap/quality/report use this path.
 func runCrapWithExternalAnalyzer(p crapParams) error {
-	cfg := loadGazeConfigBestEffort(p.moduleDir)
-	binary, args, err := adapter.Discover(p.analyzerFlag, p.languageFlag, cfg)
+	session, providers, err := initExternalSession(
+		p.analyzerFlag, p.languageFlag, p.moduleDir, p.patterns, p.stderr)
 	if err != nil {
-		return fmt.Errorf("discovering analyzer: %w", err)
-	}
-	if binary == "" {
-		return fmt.Errorf("analyzer %q not found", p.analyzerFlag)
-	}
-
-	session := adapter.NewSession(binary, args, p.moduleDir, p.patterns, p.stderr)
-	providers, err := session.Initialize()
-	if err != nil {
-		return fmt.Errorf("initializing analyzer: %w", err)
+		return err
 	}
 	defer func() { _ = session.Close() }()
 
-	_, _ = fmt.Fprintf(p.stderr, "Using external analyzer: %s (language: %s)\n",
-		providers.AnalyzerName, providers.Language)
-
-	// Wire external providers into crap.Options.
-	p.opts.ComplexityProvider = providers.Complexity
-	p.opts.LineCoverageProvider = providers.LineCoverage
-	if providers.ContractCoverage != nil {
-		p.opts.ContractCoverageProvider = providers.ContractCoverage
-	}
+	wireExternalProviders(&p.opts, providers)
 
 	analyze := p.analyzeFunc
 	if analyze == nil {
@@ -645,17 +628,16 @@ func runCrapWithExternalAnalyzer(p crapParams) error {
 		return err
 	}
 
-	if len(rpt.Scores) == 0 {
-		if p.thresholdSet {
-			return fmt.Errorf("no functions analyzed — cannot evaluate thresholds (check package patterns)")
-		}
-		_, _ = fmt.Fprintln(p.stderr, "warning: no functions analyzed")
-	}
+	return finishExternalCrapReport(p, rpt)
+}
 
-	if rpt.Summary.GazeCRAPload == nil {
-		_, _ = fmt.Fprintln(p.stderr,
-			"note: GazeCRAP unavailable — analyzer does not support test_mapping")
+// finishExternalCrapReport handles post-analysis output and threshold
+// checking for external analyzer CRAP results.
+func finishExternalCrapReport(p crapParams, rpt *crap.Report) error {
+	if len(rpt.Scores) == 0 && p.thresholdSet {
+		return fmt.Errorf("no functions analyzed — cannot evaluate thresholds (check package patterns)")
 	}
+	emitExternalCrapNotes(p.stderr, rpt)
 
 	if err := writeCrapReport(p.stdout, p.format, rpt); err != nil {
 		return err
@@ -663,6 +645,55 @@ func runCrapWithExternalAnalyzer(p crapParams) error {
 
 	printCISummary(p.stderr, rpt, p.maxCrapload, p.maxGazeCrapload)
 	return checkCIThresholds(rpt, p.maxCrapload, p.maxGazeCrapload)
+}
+
+// initExternalSession discovers, spawns, and initializes an external
+// analyzer session. Returns the session (caller must Close) and
+// the constructed providers.
+func initExternalSession(
+	analyzerFlag, languageFlag, moduleDir string,
+	patterns []string, stderr io.Writer,
+) (*adapter.Session, *adapter.Providers, error) {
+	cfg := loadGazeConfigBestEffort(moduleDir)
+	binary, args, err := adapter.Discover(analyzerFlag, languageFlag, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("discovering analyzer: %w", err)
+	}
+	if binary == "" {
+		return nil, nil, fmt.Errorf("analyzer %q not found", analyzerFlag)
+	}
+
+	session := adapter.NewSession(binary, args, moduleDir, patterns, stderr)
+	providers, err := session.Initialize()
+	if err != nil {
+		_ = session.Close()
+		return nil, nil, fmt.Errorf("initializing analyzer: %w", err)
+	}
+
+	_, _ = fmt.Fprintf(stderr, "Using external analyzer: %s (language: %s)\n",
+		providers.AnalyzerName, providers.Language)
+	return session, providers, nil
+}
+
+// wireExternalProviders sets external provider adapters on crap.Options.
+func wireExternalProviders(opts *crap.Options, providers *adapter.Providers) {
+	opts.ComplexityProvider = providers.Complexity
+	opts.LineCoverageProvider = providers.LineCoverage
+	if providers.ContractCoverage != nil {
+		opts.ContractCoverageProvider = providers.ContractCoverage
+	}
+}
+
+// emitExternalCrapNotes writes informational notes about external
+// analyzer CRAP results to stderr.
+func emitExternalCrapNotes(stderr io.Writer, rpt *crap.Report) {
+	if len(rpt.Scores) == 0 {
+		_, _ = fmt.Fprintln(stderr, "warning: no functions analyzed")
+	}
+	if rpt.Summary.GazeCRAPload == nil {
+		_, _ = fmt.Fprintln(stderr,
+			"note: GazeCRAP unavailable — analyzer does not support test_mapping")
+	}
 }
 
 // writeCrapReport outputs the CRAP report in the requested format.
@@ -1692,65 +1723,51 @@ func buildExternalReportAnalyzeFunc(
 	patterns []string,
 	stderr io.Writer,
 ) (func([]string, string) (*aireport.ReportPayload, error), func(), error) {
-	cfg := loadGazeConfigBestEffort(moduleDir)
-	binary, args, err := adapter.Discover(analyzerFlag, languageFlag, cfg)
+	session, providers, err := initExternalSession(
+		analyzerFlag, languageFlag, moduleDir, patterns, stderr)
 	if err != nil {
-		return nil, nil, fmt.Errorf("discovering analyzer: %w", err)
+		return nil, nil, err
 	}
-	if binary == "" {
-		return nil, nil, fmt.Errorf("analyzer %q not found", analyzerFlag)
-	}
-
-	session := adapter.NewSession(binary, args, moduleDir, patterns, stderr)
-	providers, err := session.Initialize()
-	if err != nil {
-		_ = session.Close()
-		return nil, nil, fmt.Errorf("initializing analyzer: %w", err)
-	}
-
-	_, _ = fmt.Fprintf(stderr, "Using external analyzer: %s (language: %s)\n",
-		providers.AnalyzerName, providers.Language)
 
 	analyzeFunc := func(pats []string, modDir string) (*aireport.ReportPayload, error) {
-		opts := crap.DefaultOptions()
-		opts.Stderr = stderr
-		opts.ComplexityProvider = providers.Complexity
-		opts.LineCoverageProvider = providers.LineCoverage
-		if providers.ContractCoverage != nil {
-			opts.ContractCoverageProvider = providers.ContractCoverage
-		}
-
-		rpt, crapErr := crap.Analyze(pats, modDir, opts)
-		if crapErr != nil {
-			return nil, fmt.Errorf("CRAP analysis with external analyzer: %w", crapErr)
-		}
-
-		crapJSON, jsonErr := captureReportJSON(func(w io.Writer) error {
-			return crap.WriteJSON(w, rpt)
-		})
-		if jsonErr != nil {
-			return nil, jsonErr
-		}
-
-		payload := &aireport.ReportPayload{
-			CRAP: crapJSON,
-		}
-		payload.Summary.CRAPload = rpt.Summary.CRAPload
-		payload.Summary.GazeCRAPload = rpt.Summary.GazeCRAPload
-		payload.Summary.TotalFunctions = rpt.Summary.TotalFunctions
-
-		// Quality, classify, and docscan are Go-specific — record
-		// them as skipped rather than failed.
-		skipped := "skipped: external analyzer mode"
-		payload.Errors.Quality = &skipped
-		payload.Errors.Classify = &skipped
-		payload.Errors.Docscan = &skipped
-
-		return payload, nil
+		return runExternalReportCRAP(pats, modDir, providers, stderr)
 	}
 
 	cleanup := func() { _ = session.Close() }
 	return analyzeFunc, cleanup, nil
+}
+
+// runExternalReportCRAP runs the CRAP step using external providers
+// and builds a ReportPayload with only the CRAP section populated.
+// Quality, classify, and docscan are Go-specific and skipped.
+func runExternalReportCRAP(pats []string, modDir string, providers *adapter.Providers, stderr io.Writer) (*aireport.ReportPayload, error) {
+	opts := crap.DefaultOptions()
+	opts.Stderr = stderr
+	wireExternalProviders(&opts, providers)
+
+	rpt, err := crap.Analyze(pats, modDir, opts)
+	if err != nil {
+		return nil, fmt.Errorf("CRAP analysis with external analyzer: %w", err)
+	}
+
+	crapJSON, err := captureReportJSON(func(w io.Writer) error {
+		return crap.WriteJSON(w, rpt)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	payload := &aireport.ReportPayload{CRAP: crapJSON}
+	payload.Summary.CRAPload = rpt.Summary.CRAPload
+	payload.Summary.GazeCRAPload = rpt.Summary.GazeCRAPload
+	payload.Summary.TotalFunctions = rpt.Summary.TotalFunctions
+
+	skipped := "skipped: external analyzer mode"
+	payload.Errors.Quality = &skipped
+	payload.Errors.Classify = &skipped
+	payload.Errors.Docscan = &skipped
+
+	return payload, nil
 }
 
 // captureReportJSON runs fn writing JSON to a buffer and returns the bytes.

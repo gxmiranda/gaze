@@ -21,10 +21,6 @@ import (
 // CRAP scores are computed from these values using the standard
 // formula: CRAP(c,cov) = c² × (1 - cov)³ + c.
 func TestCrapWithExternalAnalyzer(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
 	var stdout, stderr bytes.Buffer
 
 	// Use a temp directory as the "module root" — the external
