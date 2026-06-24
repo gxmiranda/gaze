@@ -12,18 +12,18 @@
 
 ## 3. External Provider Adapters
 
-- [ ] 3.1 Create `internal/adapter/complexity.go` with `ExternalComplexityProvider` struct implementing `crap.ComplexityProvider`. Holds a `*protocol.Client`. `Analyze` method calls `client.Call("complexity", ...)` and converts `ComplexityResult.Functions` to `[]crap.FunctionComplexity`.
-- [ ] 3.2 Create `internal/adapter/coverage.go` with `ExternalLineCoverageProvider` struct implementing `crap.LineCoverageProvider`. Holds a `*protocol.Client`. `Coverage` method calls `client.Call("coverage", ...)` and converts `CoverageResult.Functions` to `[]crap.FuncCoverage`.
-- [ ] 3.3 Create `internal/adapter/sideeffect.go` with `ExternalSideEffectAnalyzer` struct implementing `crap.SideEffectAnalyzer`. Holds a `*protocol.Client` and `Capabilities`. `Analyze` method calls `client.Call("analyze", ...)` and converts response to `[]taxonomy.AnalysisResult`. If `classify_signals` capability is true, also calls `classify_signals` and merges signal data.
-- [ ] 3.4 Create `internal/adapter/contract.go` with `ExternalContractCoverageProvider` struct implementing `crap.ContractCoverageProvider`. Holds a `*protocol.Client` and `Capabilities`. If `test_mapping` capability is true, calls `test_mapping` method and uses `quality.ComputeContractCoverage` to build the lookup function. If false, returns a no-op lookup (always false).
-- [ ] 3.5 Create `internal/adapter/session.go` with `Session` struct that manages the full protocol lifecycle: spawn binary, initialize, discover, run analysis pipeline (calling all required + optional methods based on capabilities), shutdown. Returns fully-constructed provider adapters ready to pass to `crap.Options`.
-- [ ] 3.6 Create `internal/adapter/adapter_test.go` with tests using the fake analyzer binary: (1) each adapter produces correct output from canned responses, (2) session lifecycle completes successfully, (3) optional method skipped when capability is false, (4) error propagation from required methods.
+- [x] 3.1 Create `internal/adapter/complexity.go` with `ExternalComplexityProvider` struct implementing `crap.ComplexityProvider`. Holds a `*protocol.Client`. `Analyze` method calls `client.Call("complexity", ...)` and converts `ComplexityResult.Functions` to `[]crap.FunctionComplexity`.
+- [x] 3.2 Create `internal/adapter/coverage.go` with `ExternalLineCoverageProvider` struct implementing `crap.LineCoverageProvider`. Holds a `*protocol.Client`. `Coverage` method calls `client.Call("coverage", ...)` and converts `CoverageResult.Functions` to `[]crap.FuncCoverage`.
+- [x] 3.3 Create `internal/adapter/sideeffect.go` with `ExternalSideEffectAnalyzer` struct implementing `crap.SideEffectAnalyzer`. Holds a `*protocol.Client` and `Capabilities`. `Analyze` method calls `client.Call("analyze", ...)` and converts response to `[]taxonomy.AnalysisResult`. If `classify_signals` capability is true, also calls `classify_signals` and merges signal data.
+- [x] 3.4 Create `internal/adapter/contract.go` with `ExternalContractCoverageProvider` struct implementing `crap.ContractCoverageProvider`. Holds a `*protocol.Client` and `Capabilities`. If `test_mapping` capability is true, calls `test_mapping` method and uses `quality.ComputeContractCoverage` to build the lookup function. If false, returns a no-op lookup (always false).
+- [x] 3.5 Create `internal/adapter/session.go` with `Session` struct that manages the full protocol lifecycle: spawn binary, initialize, discover, run analysis pipeline (calling all required + optional methods based on capabilities), shutdown. Returns fully-constructed provider adapters ready to pass to `crap.Options`.
+- [x] 3.6 Create `internal/adapter/adapter_test.go` with tests using the fake analyzer binary: (1) each adapter produces correct output from canned responses, (2) session lifecycle completes successfully, (3) optional method skipped when capability is false, (4) error propagation from required methods.
 
 ## 4. Analyzer Discovery
 
-- [ ] 4.1 Create `internal/adapter/discovery.go` with `Discover(analyzerFlag, language string, cfg *config.GazeConfig) (binary string, args []string, err error)`. Implements the three-tier discovery: CLI flag → config → PATH convention. Returns the binary path and args for spawning.
-- [ ] 4.2 Add `AnalyzersConfig` struct to `internal/config/config.go` with `map[string]AnalyzerEntry` where `AnalyzerEntry` has `Command string` and `Args []string`. Add `Analyzers AnalyzersConfig` field to `GazeConfig`. Update `DefaultConfig()`.
-- [ ] 4.3 Create `internal/adapter/discovery_test.go` with tests: (1) CLI flag overrides config, (2) config lookup works, (3) PATH fallback works, (4) no analyzer found returns empty (Go default).
+- [x] 4.1 Create `internal/adapter/discovery.go` with `Discover(analyzerFlag, language string, cfg *config.GazeConfig) (binary string, args []string, err error)`. Implements the three-tier discovery: CLI flag → config → PATH convention. Returns the binary path and args for spawning.
+- [x] 4.2 Add `AnalyzersConfig` struct to `internal/config/config.go` with `map[string]AnalyzerEntry` where `AnalyzerEntry` has `Command string` and `Args []string`. Add `Analyzers AnalyzersConfig` field to `GazeConfig`. Update `DefaultConfig()`.
+- [x] 4.3 Create `internal/adapter/discovery_test.go` with tests: (1) CLI flag overrides config, (2) config lookup works, (3) PATH fallback works, (4) no analyzer found returns empty (Go default).
 
 ## 5. CLI Integration
 
