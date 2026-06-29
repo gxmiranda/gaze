@@ -152,6 +152,9 @@ func FindModuleRoot(startDir string) (string, error) {
 // lightweight NeedName load mode, deduplicates results, and filters
 // out test-variant packages (those with a "_test" suffix).
 func ResolvePackagePaths(patterns []string, moduleDir string) ([]string, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
 	cfg := &packages.Config{
 		Mode: packages.NeedName,
 		Dir:  moduleDir,

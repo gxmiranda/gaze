@@ -172,11 +172,8 @@ func TestResolvePackagePaths_EmptyPatterns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResolvePackagePaths failed: %v", err)
 	}
-	// When no patterns are given, packages.Load resolves the
-	// current directory, which may return the module root
-	// package. Either 0 or 1 results is acceptable.
-	if len(paths) > 1 {
-		t.Errorf("expected 0 or 1 paths for empty patterns, got %d", len(paths))
+	if len(paths) != 0 {
+		t.Errorf("expected 0 paths for empty patterns, got %d: %v", len(paths), paths)
 	}
 }
 
