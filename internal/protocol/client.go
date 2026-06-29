@@ -24,9 +24,6 @@ const (
 	// and shutdown methods (30 seconds).
 	ShortTimeout = 30 * time.Second
 
-	// shutdownTimeout is the internal timeout for the shutdown
-	// request sent during Close().
-	shutdownTimeout = 10 * time.Second
 )
 
 // Client manages a JSON-RPC 2.0 session with an external analyzer
