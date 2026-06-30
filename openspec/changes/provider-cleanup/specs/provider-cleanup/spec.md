@@ -44,6 +44,54 @@ The `internal/provider/goprovider/` package MUST use `loader.IsMainPkg` instead 
 - **WHEN** its import list is inspected
 - **THEN** it MUST contain zero imports from `internal/analysis`, `internal/classify`, `internal/quality`, `internal/loader`, or `golang.org/x/tools/go/packages`
 
+### Requirement: Taxonomy Language Field
+
+The `Metadata` struct MUST include a `Language string` field (JSON tag `language`) declaring the analyzed language. The `GoVersion` field MUST be renamed to `LanguageVersion` (JSON tag `language_version`). Go analysis MUST set `Language: "go"` and `LanguageVersion: runtime.Version()`.
+
+#### Scenario: Go analysis metadata
+
+- **GIVEN** a Go package analyzed with `gaze analyze --format=json`
+- **WHEN** the JSON output is parsed
+- **THEN** the `metadata` object MUST contain `"language": "go"` and `"language_version"` with a Go version string (e.g., `"go1.25.0"`)
+
+#### Scenario: External analyzer metadata
+
+- **GIVEN** an external analyzer that responds to `initialize` with `language: "python"`
+- **WHEN** results flow through the scoring pipeline
+- **THEN** the output `metadata` MUST contain `"language": "python"` and `"language_version"` from the analyzer
+
+---
+
+### Requirement: Neutral Side Effect Type Aliases
+
+The `taxonomy` package MUST define language-neutral `SideEffectType` constants as aliases for Go-specific types: `AsyncTaskSpawn` (for `GoroutineSpawn`), `AsyncMessageSend` (for `ChannelSend`), `AsyncChannelClose` (for `ChannelClose`), `BarrierOp` (for `WaitGroupOp`), `PanicRecovery` (for `RecoverBehavior`), `FFICall` (for `CgoCall`), `ObjectPoolOp` (for `SyncPoolOp`). Each alias MUST have the same string value as the Go-specific constant. The Go-specific names MUST NOT be removed.
+
+#### Scenario: Alias equivalence
+
+- **GIVEN** the constants `AsyncTaskSpawn` and `GoroutineSpawn`
+- **WHEN** compared
+- **THEN** they MUST be equal (`AsyncTaskSpawn == GoroutineSpawn`)
+
+---
+
+### Requirement: Streaming Protocol Mode
+
+The protocol MUST support an optional `analyze/stream` method. When an analyzer declares `capabilities.streaming: true` in the `initialize` response, gaze MUST call `analyze/stream` instead of `analyze`. The analyzer MUST write one JSON object per line (JSONL) to stdout, each representing one `AnalyzedFunction`. Gaze MUST process results incrementally. When `streaming` is false or absent, gaze MUST use the batch `analyze` method.
+
+#### Scenario: Streaming analysis
+
+- **GIVEN** an analyzer with `capabilities.streaming: true`
+- **WHEN** gaze calls `analyze/stream`
+- **THEN** the analyzer writes JSONL and gaze collects all lines into `[]AnalyzedFunction`
+
+#### Scenario: Streaming not supported
+
+- **GIVEN** an analyzer with `capabilities.streaming: false`
+- **WHEN** gaze runs analysis
+- **THEN** gaze MUST call the batch `analyze` method (existing behavior)
+
+---
+
 ## REMOVED Requirements
 
 ### Requirement: ContractCoverageFunc callback pattern

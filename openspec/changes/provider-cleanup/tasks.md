@@ -15,18 +15,37 @@
 - [ ] 3.2 Remove `internal/crap/contract.go` (now empty after the move). Verify `internal/crap/` no longer imports `internal/analysis`, `internal/classify`, `internal/quality`, `internal/loader`, or `golang.org/x/tools/go/packages`.
 - [ ] 3.3 Update any callers of `crap.BuildContractCoverageFunc` outside of `goprovider/` — search `cmd/gaze/main.go` and `internal/aireport/` for remaining references. These should now call through `GoContractCoverageProvider` or the moved function in `goprovider`.
 
-## 4. Non-Regression Verification
+## 4. Taxonomy Generalization
 
-- [ ] 4.1 Run `go build ./...` — MUST compile with zero errors.
-- [ ] 4.2 Run `go test -race -count=1 -short ./...` — all tests MUST pass.
-- [ ] 4.3 Run `go test -race -count=1 -run TestRunSelfCheck -timeout 30m ./cmd/gaze/...` — E2E self-check MUST produce identical output.
-- [ ] 4.4 Verify `internal/crap/` import list contains zero Go-specific analysis imports.
+- [ ] 4.1 Rename `GoVersion` to `LanguageVersion` in `internal/taxonomy/types.go` (JSON tag `language_version`). Add `Language string` field (JSON tag `language`). Update `MarshalJSON`/`UnmarshalJSON` if they handle these fields.
+- [ ] 4.2 Update Go analysis paths to set `Language: "go"` and `LanguageVersion: runtime.Version()`: `internal/analysis/analyzer.go` and `internal/quality/quality.go`.
+- [ ] 4.3 Update `internal/adapter/sideeffect.go` to set `Language` and `LanguageVersion` from the `initialize` response's `language` field.
+- [ ] 4.4 Update JSON Schema in `internal/report/schema.go` — rename `go_version` to `language_version`, add `language` field.
+- [ ] 4.5 Add neutral `SideEffectType` aliases to `internal/taxonomy/types.go`: `AsyncTaskSpawn = GoroutineSpawn`, `AsyncMessageSend = ChannelSend`, `AsyncChannelClose = ChannelClose`, `BarrierOp = WaitGroupOp`, `PanicRecovery = RecoverBehavior`, `FFICall = CgoCall`, `ObjectPoolOp = SyncPoolOp`. Add GoDoc comments noting these are language-neutral aliases.
+- [ ] 4.6 Add tests verifying alias equivalence (`AsyncTaskSpawn == GoroutineSpawn` etc.) in `internal/taxonomy/`.
 
-## 5. Documentation
+## 5. Streaming Protocol Mode
 
-- [ ] 5.1 Update `AGENTS.md` — add to Recent Changes. Note that `BuildContractCoverageFunc` moved from `internal/crap/` to `internal/provider/goprovider/`.
-- [ ] 5.2 Update GoDoc comments on any moved or modified exported functions.
+- [ ] 5.1 Add `Streaming bool` to `protocol.Capabilities` in `internal/protocol/types.go`. Add `MethodAnalyzeStream = "analyze/stream"` constant.
+- [ ] 5.2 Add `CallStream(ctx context.Context, method string, params any) (*bufio.Scanner, error)` to `internal/protocol/client.go` — sends the request, returns a scanner for reading JSONL lines from stdout. The caller reads lines until EOF or context cancellation.
+- [ ] 5.3 Update `ExternalSideEffectAnalyzer` in `internal/adapter/sideeffect.go` — when `Capabilities.Streaming` is true, call `analyze/stream` via `CallStream` and collect `AnalyzedFunction` objects line by line. When false, use existing batch `Call`.
+- [ ] 5.4 Add `--hang-stream` mode to fake analyzer (`internal/protocol/testdata/fake_analyzer/main.go`) that writes JSONL for `analyze/stream`.
+- [ ] 5.5 Add tests: (1) streaming session produces same results as batch, (2) streaming with context timeout cancels mid-stream, (3) malformed JSONL line is reported as error.
+- [ ] 5.6 Update `docs/protocol.md` with `analyze/stream` method documentation and JSONL format specification.
 
-## 6. Constitution Alignment Verification
+## 6. Non-Regression Verification
 
-- [ ] 6.1 Verify all four principles: Accuracy (no scoring changes, E2E passes), Minimal Assumptions (no user-facing changes), Actionable Output (output unchanged), Testability (deprecated test paths removed, remaining tests cover provider-only path).
+- [ ] 6.1 Run `go build ./...` — MUST compile with zero errors.
+- [ ] 6.2 Run `go test -race -count=1 -short ./...` — all tests MUST pass.
+- [ ] 6.3 Run `go test -race -count=1 -run TestRunSelfCheck -timeout 30m ./cmd/gaze/...` — E2E self-check MUST produce identical output.
+- [ ] 6.4 Verify `internal/crap/` import list contains zero Go-specific analysis imports.
+
+## 7. Documentation
+
+- [ ] 7.1 Update `AGENTS.md` — add to Recent Changes. Note `BuildContractCoverageFunc` relocation, taxonomy generalization, and streaming protocol.
+- [ ] 7.2 Update GoDoc comments on any moved or modified exported functions.
+- [ ] 7.3 Update `docs/protocol.md` with neutral side effect type aliases and `language` / `language_version` fields.
+
+## 8. Constitution Alignment Verification
+
+- [ ] 8.1 Verify all four principles: Accuracy (no scoring changes, E2E passes), Minimal Assumptions (no user-facing changes beyond JSON field rename), Actionable Output (output improved with language field), Testability (deprecated test paths removed, streaming tested with fake analyzer).
