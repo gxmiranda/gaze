@@ -433,7 +433,7 @@ func TestExternalSideEffectAnalyzer_Streaming(t *testing.T) {
 	if err != nil {
 		t.Fatalf("batch analyze: %v", err)
 	}
-	batchClient.Close()
+	_ = batchClient.Close()
 
 	// Build streaming results with --hang-stream flag.
 	streamClient := startFakeAnalyzerWithArgs(t, "--hang-stream")
@@ -451,7 +451,7 @@ func TestExternalSideEffectAnalyzer_Streaming(t *testing.T) {
 	if err != nil {
 		t.Fatalf("streaming analyze: %v", err)
 	}
-	streamClient.Close()
+	_ = streamClient.Close()
 
 	// Compare: streaming should produce same results as batch.
 	if len(batchResults) != len(streamResults) {

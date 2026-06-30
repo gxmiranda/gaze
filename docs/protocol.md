@@ -228,7 +228,7 @@ Each side effect may include a `classification` object:
 
 When `classification` is null, Gaze uses default classification based on the effect type's tier.
 
-**Language-neutral side effect type aliases**: External analyzers may use either Go-specific type names (e.g., `GoroutineSpawn`, `ChannelSend`, `CgoCall`) or language-neutral aliases (e.g., `AsyncTaskSpawn`, `AsyncMessageSend`, `FFICall`). The aliases map to the same string values as the Go-specific names. See the [Side Effect Type Reference](#side-effect-type-aliases) for the full mapping.
+**Language-neutral side effect type aliases**: External analyzers may use either Go-specific type names (e.g., `GoroutineSpawn`, `ChannelSend`, `CgoCall`) or language-neutral aliases (e.g., `AsyncTaskSpawn`, `AsyncMessageSend`, `FFICall`). The aliases map to the same string values as the Go-specific names: `AsyncTaskSpawn` = `GoroutineSpawn`, `AsyncMessageSend` = `ChannelSend`, `AsyncChannelClose` = `ChannelClose`, `BarrierOp` = `WaitGroupOp`, `PanicRecovery` = `RecoverBehavior`, `FFICall` = `CgoCall`, `ObjectPoolOp` = `SyncPoolOp`.
 
 ---
 
