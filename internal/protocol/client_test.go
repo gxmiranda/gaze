@@ -436,7 +436,7 @@ func TestCallStream_ReturnsScanner(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Initialize first.
 	ctx := context.Background()
