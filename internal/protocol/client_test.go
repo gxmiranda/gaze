@@ -427,6 +427,71 @@ func findFunction(functions []protocol.AnalyzedFunction, name string) *protocol.
 	return nil
 }
 
+// TestCallStream_ReturnsScanner verifies that CallStream sends the
+// request and returns a scanner for reading JSONL lines from the
+// analyzer's stdout. Uses --crash-after=analyze/stream to ensure
+// the analyzer exits after writing stream data, causing EOF.
+func TestCallStream_ReturnsScanner(t *testing.T) {
+	client, err := protocol.NewClient(fakeBinaryPath, "--stdio", "--hang-stream", "--crash-after=analyze/stream")
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	// Initialize first.
+	ctx := context.Background()
+	resp, err := client.Call(ctx, protocol.MethodInitialize, protocol.InitializeParams{
+		RootPath: "/tmp/project",
+	})
+	if err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("initialize error: %s", resp.Error.Message)
+	}
+
+	// Verify streaming capability is declared.
+	var initResult protocol.InitializeResult
+	if uerr := json.Unmarshal(resp.Result, &initResult); uerr != nil {
+		t.Fatalf("unmarshal: %v", uerr)
+	}
+	if !initResult.Capabilities.Streaming {
+		t.Fatal("expected streaming=true with --hang-stream flag")
+	}
+
+	// Call analyze/stream.
+	scanner, err := client.CallStream(ctx, protocol.MethodAnalyzeStream, protocol.AnalyzeParams{
+		RootPath: "/tmp/project",
+		Patterns: []string{"./..."},
+	})
+	if err != nil {
+		t.Fatalf("CallStream: %v", err)
+	}
+
+	// Read JSONL lines. The fake analyzer exits after writing
+	// stream data (--crash-after=analyze/stream), so scanner.Scan()
+	// will return false at EOF.
+	var lines int
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		// Verify each line is valid JSON.
+		var obj map[string]interface{}
+		if uerr := json.Unmarshal(line, &obj); uerr != nil {
+			t.Errorf("line %d: invalid JSON: %v", lines+1, uerr)
+		}
+		lines++
+	}
+	if lines == 0 {
+		t.Error("expected at least one JSONL line from streaming response")
+	}
+	if lines != 3 {
+		t.Errorf("expected 3 JSONL lines (add, multiply, divide), got %d", lines)
+	}
+}
+
 // containsAll checks that s contains all of the given substrings.
 func containsAll(s string, substrings ...string) bool {
 	for _, sub := range substrings {

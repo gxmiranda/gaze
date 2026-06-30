@@ -1,6 +1,8 @@
 package crap
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -9,6 +11,64 @@ import (
 // These test the lookup closure behavior with ContractCoverageInfo,
 // independent of the quality pipeline. The pipeline orchestration
 // itself lives in internal/provider/goprovider/contract.go.
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// findModuleRoot tests
+// ---------------------------------------------------------------------------
+
+func TestFindModuleRoot_Found(t *testing.T) {
+	// Create a temp directory tree with a go.mod in the root.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(root, "a", "b", "c")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findModuleRoot(sub)
+	if err != nil {
+		t.Fatalf("findModuleRoot: %v", err)
+	}
+	if got != root {
+		t.Errorf("findModuleRoot = %q, want %q", got, root)
+	}
+}
+
+func TestFindModuleRoot_NotFound(t *testing.T) {
+	// Use a temp directory with no go.mod anywhere up the tree.
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "no", "gomod", "here")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := findModuleRoot(sub)
+	if err == nil {
+		t.Fatal("expected error when no go.mod exists")
+	}
+}
+
+func TestFindModuleRoot_AtStartDir(t *testing.T) {
+	// go.mod is in the start directory itself.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findModuleRoot(dir)
+	if err != nil {
+		t.Fatalf("findModuleRoot: %v", err)
+	}
+	if got != dir {
+		t.Errorf("findModuleRoot = %q, want %q", got, dir)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Contract coverage closure behavior tests
 // ---------------------------------------------------------------------------
 
 // TestContractCoverageClosure_NoTestCoverage verifies that a

@@ -436,7 +436,9 @@ func TestExternalSideEffectAnalyzer_Streaming(t *testing.T) {
 	_ = batchClient.Close()
 
 	// Build streaming results with --hang-stream flag.
-	streamClient := startFakeAnalyzerWithArgs(t, "--hang-stream")
+	// --crash-after=analyze/stream ensures the analyzer exits after
+	// writing JSONL, causing EOF so the scanner terminates.
+	streamClient := startFakeAnalyzerWithArgs(t, "--hang-stream", "--crash-after=analyze/stream")
 	streamCaps := mustInitialize(t, streamClient)
 	if !streamCaps.Streaming {
 		t.Fatal("expected streaming=true with --hang-stream flag")

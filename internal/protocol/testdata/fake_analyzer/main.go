@@ -106,6 +106,9 @@ func main() {
 		// Handle analyze/stream: write JSONL lines instead of a single response.
 		if req.Method == "analyze/stream" {
 			writeStreamResponse(req.ID)
+			if *crashAfter == "analyze/stream" {
+				os.Exit(0)
+			}
 			continue
 		}
 
