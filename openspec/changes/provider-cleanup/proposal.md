@@ -73,10 +73,10 @@ Add a `analyze/stream` protocol method as an alternative to the batch `analyze` 
 **Assessment**: PASS — Pure cleanup. No scoring, detection, or classification logic changes. All tests pass.
 
 ### II. Minimal Assumptions
-**Assessment**: PASS — No user-facing changes.
+**Assessment**: PASS — One JSON output field rename (`go_version` → `language_version`) is an explicit, documented breaking change to the JSON schema. No annotation or restructuring of user code is required. The assumption that consumers will update their field reference is documented in Risk R3.
 
 ### III. Actionable Output
-**Assessment**: PASS — Output unchanged.
+**Assessment**: PASS — Output unchanged in structure. The `language_version` field rename and new `language` field improve cross-run comparability for multi-language environments.
 
 ### IV. Testability
 **Assessment**: PASS — Removing deprecated code paths simplifies the test surface. The mock precedence test (which tested the deprecated fallback) is removed since the fallback no longer exists.

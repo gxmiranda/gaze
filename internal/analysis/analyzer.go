@@ -185,11 +185,12 @@ func buildMetadata(start time.Time, version string) taxonomy.Metadata {
 		version = "dev"
 	}
 	return taxonomy.Metadata{
-		GazeVersion: version,
-		GoVersion:   runtime.Version(),
-		Timestamp:   start,
-		Duration:    time.Since(start),
-		Warnings:    nil,
+		GazeVersion:     version,
+		Language:        "go",
+		LanguageVersion: runtime.Version(),
+		Timestamp:       start,
+		Duration:        time.Since(start),
+		Warnings:        nil,
 	}
 }
 

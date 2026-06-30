@@ -90,6 +90,12 @@ The protocol MUST support an optional `analyze/stream` method. When an analyzer 
 - **WHEN** gaze runs analysis
 - **THEN** gaze MUST call the batch `analyze` method (existing behavior)
 
+#### Scenario: Malformed JSONL line during streaming
+
+- **GIVEN** an analyzer streaming JSONL results
+- **WHEN** a line contains invalid JSON
+- **THEN** gaze MUST report the error with the line number and content, and MUST stop processing (fail-fast, do not skip malformed lines)
+
 ---
 
 ## REMOVED Requirements

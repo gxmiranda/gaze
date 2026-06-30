@@ -92,9 +92,10 @@ func Assess(
 
 	// Build metadata for reports.
 	meta := taxonomy.Metadata{
-		GazeVersion: opts.Version,
-		GoVersion:   runtime.Version(),
-		Timestamp:   start,
+		GazeVersion:     opts.Version,
+		Language:        "go",
+		LanguageVersion: runtime.Version(),
+		Timestamp:       start,
 	}
 
 	// Build a lookup from qualified function name to analysis result.
@@ -151,10 +152,11 @@ func Assess(
 				AssertionCount:               len(sites),
 				AssertionDetectionConfidence: detectionConf,
 				Metadata: taxonomy.Metadata{
-					GazeVersion: meta.GazeVersion,
-					GoVersion:   meta.GoVersion,
-					Timestamp:   meta.Timestamp,
-					Duration:    time.Since(pairStart),
+					GazeVersion:     meta.GazeVersion,
+					Language:        meta.Language,
+					LanguageVersion: meta.LanguageVersion,
+					Timestamp:       meta.Timestamp,
+					Duration:        time.Since(pairStart),
 				},
 			}
 			reports = append(reports, report)
@@ -239,10 +241,11 @@ func Assess(
 					AssertionCount:               len(sites),
 					AssertionDetectionConfidence: detectionConf,
 					Metadata: taxonomy.Metadata{
-						GazeVersion: meta.GazeVersion,
-						GoVersion:   meta.GoVersion,
-						Timestamp:   meta.Timestamp,
-						Duration:    time.Since(pairStart),
+						GazeVersion:     meta.GazeVersion,
+						Language:        meta.Language,
+						LanguageVersion: meta.LanguageVersion,
+						Timestamp:       meta.Timestamp,
+						Duration:        time.Since(pairStart),
 					},
 				}
 				reports = append(reports, report)

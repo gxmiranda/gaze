@@ -165,10 +165,17 @@ const Schema = `{
     },
     "Metadata": {
       "type": "object",
-      "required": ["gaze_version", "go_version", "duration_ms"],
+      "required": ["gaze_version", "language", "language_version", "duration_ms"],
       "properties": {
         "gaze_version": { "type": "string" },
-        "go_version": { "type": "string" },
+        "language": {
+          "type": "string",
+          "description": "The analyzed language (e.g., go, python)"
+        },
+        "language_version": {
+          "type": "string",
+          "description": "The runtime/compiler version for the analyzed language"
+        },
         "duration_ms": {
           "type": "integer",
           "description": "Analysis duration in milliseconds"
@@ -419,10 +426,17 @@ const QualitySchema = `{
     },
     "Metadata": {
       "type": "object",
-      "required": ["gaze_version", "go_version", "duration_ms"],
+      "required": ["gaze_version", "language", "language_version", "duration_ms"],
       "properties": {
         "gaze_version": { "type": "string" },
-        "go_version": { "type": "string" },
+        "language": {
+          "type": "string",
+          "description": "The analyzed language"
+        },
+        "language_version": {
+          "type": "string",
+          "description": "The language runtime/compiler version"
+        },
         "duration_ms": { "type": "integer" },
         "timestamp": {
           "type": "string",

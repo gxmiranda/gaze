@@ -206,6 +206,49 @@ func (c *Client) Call(ctx context.Context, method string, params any) (*Response
 	}
 }
 
+// CallStream sends a JSON-RPC 2.0 request to the analyzer and returns
+// a scanner for reading JSONL lines from stdout. Each line is a
+// complete JSON object (one AnalyzedFunction per line). The caller
+// reads lines until EOF or context cancellation.
+//
+// Unlike Call, CallStream does not expect a single JSON-RPC response.
+// Instead, the analyzer writes JSONL lines to stdout, terminated by
+// EOF (the analyzer closes its stdout or the process exits).
+//
+// Returns an error if the request cannot be sent. Malformed lines
+// should be detected by the caller when parsing each line.
+func (c *Client) CallStream(ctx context.Context, method string, params any) (*bufio.Scanner, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed.Load() {
+		return nil, fmt.Errorf("protocol client is closed")
+	}
+
+	id := c.nextID.Add(1)
+
+	req := Request{
+		JSONRPC: jsonRPCVersion,
+		ID:      id,
+		Method:  method,
+		Params:  params,
+	}
+
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling %s request: %w", method, err)
+	}
+
+	reqBytes = append(reqBytes, '\n')
+	if _, werr := c.stdin.Write(reqBytes); werr != nil {
+		return nil, fmt.Errorf("writing %s request to analyzer stdin: %w", method, werr)
+	}
+
+	// Return the stdout scanner for the caller to read JSONL lines.
+	// The caller is responsible for reading until EOF.
+	return c.stdout, nil
+}
+
 // Close sends a shutdown request to the analyzer and waits for the
 // subprocess to exit. If the subprocess does not exit cleanly, it
 // is killed.

@@ -409,3 +409,75 @@ func mustInitialize(t *testing.T, client *protocol.Client) protocol.Capabilities
 	}
 	return initResult.Capabilities
 }
+
+// TestExternalSideEffectAnalyzer_Streaming verifies that the streaming
+// adapter produces the same results as the batch adapter.
+func TestExternalSideEffectAnalyzer_Streaming(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: spawns external process")
+	}
+
+	// Build batch results first.
+	batchClient := mustNewClient(t)
+	batchCaps := mustInitialize(t, batchClient)
+	if batchCaps.Streaming {
+		t.Fatal("expected batch mode (streaming=false) from default fake analyzer")
+	}
+
+	batchAnalyzer := adapter.NewExternalSideEffectAnalyzer(
+		batchClient, batchCaps,
+		"/tmp/project", []string{"./..."},
+		&bytes.Buffer{},
+	)
+	batchResults, err := batchAnalyzer.Analyze("math_utils")
+	if err != nil {
+		t.Fatalf("batch analyze: %v", err)
+	}
+	batchClient.Close()
+
+	// Build streaming results with --hang-stream flag.
+	streamClient := startFakeAnalyzerWithArgs(t, "--hang-stream")
+	streamCaps := mustInitialize(t, streamClient)
+	if !streamCaps.Streaming {
+		t.Fatal("expected streaming=true with --hang-stream flag")
+	}
+
+	streamAnalyzer := adapter.NewExternalSideEffectAnalyzer(
+		streamClient, streamCaps,
+		"/tmp/project", []string{"./..."},
+		&bytes.Buffer{},
+	)
+	streamResults, err := streamAnalyzer.Analyze("math_utils")
+	if err != nil {
+		t.Fatalf("streaming analyze: %v", err)
+	}
+	streamClient.Close()
+
+	// Compare: streaming should produce same results as batch.
+	if len(batchResults) != len(streamResults) {
+		t.Fatalf("result count mismatch: batch=%d, stream=%d",
+			len(batchResults), len(streamResults))
+	}
+	for i := range batchResults {
+		if batchResults[i].Target.Function != streamResults[i].Target.Function {
+			t.Errorf("result[%d] function mismatch: batch=%q, stream=%q",
+				i, batchResults[i].Target.Function, streamResults[i].Target.Function)
+		}
+		if len(batchResults[i].SideEffects) != len(streamResults[i].SideEffects) {
+			t.Errorf("result[%d] side effects count mismatch: batch=%d, stream=%d",
+				i, len(batchResults[i].SideEffects), len(streamResults[i].SideEffects))
+		}
+	}
+}
+
+// startFakeAnalyzerWithArgs starts the fake analyzer binary with
+// extra command-line arguments appended after --stdio.
+func startFakeAnalyzerWithArgs(t *testing.T, extraArgs ...string) *protocol.Client {
+	t.Helper()
+	args := append([]string{"--stdio"}, extraArgs...)
+	client, err := protocol.NewClient(fakeBinaryPath, args...)
+	if err != nil {
+		t.Fatalf("starting fake analyzer with args %v: %v", extraArgs, err)
+	}
+	return client
+}

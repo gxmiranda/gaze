@@ -30,6 +30,7 @@ const (
 	MethodDiscover        = "discover"
 	MethodTestMapping     = "test_mapping"
 	MethodClassifySignals = "classify_signals"
+	MethodAnalyzeStream   = "analyze/stream"
 )
 
 // ProtocolVersion is the current protocol version. Included in the
@@ -132,6 +133,10 @@ type InitializeResult struct {
 	// Language is the primary language the analyzer targets
 	// (e.g., "python", "rust").
 	Language string `json:"language"`
+
+	// LanguageVersion is the runtime/compiler version for the
+	// target language (e.g., "3.12.0" for Python, "1.25.0" for Go).
+	LanguageVersion string `json:"language_version,omitempty"`
 }
 
 // Capabilities declares which optional protocol methods the analyzer
@@ -153,6 +158,12 @@ type Capabilities struct {
 	// signals. When false, gaze uses the pre-classified effects
 	// from the analyze response.
 	ClassifySignals bool `json:"classify_signals"`
+
+	// Streaming indicates whether the analyzer supports the
+	// "analyze/stream" method for incremental JSONL analysis
+	// results. When true, gaze calls analyze/stream instead of
+	// analyze. When false, the batch analyze method is used.
+	Streaming bool `json:"streaming"`
 }
 
 // --- Analyze method types ---

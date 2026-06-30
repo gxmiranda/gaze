@@ -12,8 +12,6 @@ import (
 	"strings"
 
 	"golang.org/x/tools/cover"
-
-	"github.com/unbound-force/gaze/internal/loader"
 )
 
 // FuncCoverage holds the coverage percentage for a single function.
@@ -58,7 +56,7 @@ func ParseCoverProfile(profilePath string, moduleDir string, stderr io.Writer) (
 	if moduleDir == "" {
 		cwd, _ := os.Getwd()
 		if cwd != "" {
-			if root, err := loader.FindModuleRoot(cwd); err == nil {
+			if root, err := findModuleRoot(cwd); err == nil {
 				moduleDir = root
 			}
 		}
@@ -251,4 +249,21 @@ func readModulePath(dir string) string {
 		}
 	}
 	return ""
+}
+
+// findModuleRoot walks up the directory tree from startDir looking
+// for a go.mod file, returning the directory that contains it.
+// This is a local copy to avoid importing internal/loader.
+func findModuleRoot(startDir string) (string, error) {
+	dir := startDir
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("no go.mod found in %q or any parent directory", startDir)
+		}
+		dir = parent
+	}
 }

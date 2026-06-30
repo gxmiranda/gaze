@@ -94,7 +94,7 @@ Moving `contract.go` from `crap/` to `goprovider/` is a large diff that may be h
 
 ### R3: JSON schema break (GoVersion → LanguageVersion)
 
-Renaming `go_version` to `language_version` in JSON output breaks consumers parsing this field. Mitigated by: (a) this is a minor version bump (the field is metadata, not scoring data), (b) the new field name is more accurate for multi-language use.
+Renaming `go_version` to `language_version` in JSON output breaks consumers parsing this field. Mitigated by: (a) this is a minor version bump (the field is metadata, not scoring data), (b) the new field name is more accurate for multi-language use. Migration note: the AGENTS.md Recent Changes entry and release notes MUST document this rename so consumers know to update their field references.
 
 ### R4: Streaming complexity
 

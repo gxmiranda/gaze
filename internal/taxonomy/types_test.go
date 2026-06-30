@@ -280,3 +280,27 @@ func TestFunctionTarget_QualifiedName(t *testing.T) {
 		})
 	}
 }
+
+// TestSideEffectType_NeutralAliases verifies that language-neutral
+// aliases are equal to their Go-specific counterparts.
+func TestSideEffectType_NeutralAliases(t *testing.T) {
+	tests := []struct {
+		neutral  SideEffectType
+		goName   SideEffectType
+		label    string
+	}{
+		{AsyncTaskSpawn, GoroutineSpawn, "AsyncTaskSpawn == GoroutineSpawn"},
+		{AsyncMessageSend, ChannelSend, "AsyncMessageSend == ChannelSend"},
+		{AsyncChannelClose, ChannelClose, "AsyncChannelClose == ChannelClose"},
+		{BarrierOp, WaitGroupOp, "BarrierOp == WaitGroupOp"},
+		{PanicRecovery, RecoverBehavior, "PanicRecovery == RecoverBehavior"},
+		{FFICall, CgoCall, "FFICall == CgoCall"},
+		{ObjectPoolOp, SyncPoolOp, "ObjectPoolOp == SyncPoolOp"},
+	}
+
+	for _, tt := range tests {
+		if tt.neutral != tt.goName {
+			t.Errorf("%s: %q != %q", tt.label, tt.neutral, tt.goName)
+		}
+	}
+}
