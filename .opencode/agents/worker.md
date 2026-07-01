@@ -2,6 +2,7 @@
 name: worker
 description: Executes a single subtask with file reservations and progress reporting.
 mode: subagent
+hidden: true
 ---
 
 # Forge Worker

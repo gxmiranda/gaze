@@ -108,7 +108,10 @@ Categorize each check as:
 - **PENDING**: Check still running
 - **SKIPPED**: Check was skipped
 
-If checks are still PENDING, inform the user and ask whether to wait or proceed with the available results.
+If checks are still PENDING, inform the user and use
+the **AskUserQuestion tool** with options
+`["Wait for checks to complete", "Proceed with
+available results"]`.
 
 **If all checks pass**: Record this and move to Step 4. No CI triage needed.
 
@@ -142,61 +145,36 @@ Record the classification for each failing check. This feeds into Step 8 (AI rev
 
 ### 4. Run Local Deterministic Tools (Pre-flight)
 
-Run the project's own tools as a rapid pre-flight check.
+Load the `pre-flight` skill and run in `ci-aware` mode:
 
-**Detection**: Check which tools are available by looking
-for their configuration files:
+1. Invoke the `skill` tool with name `pre-flight` to
+   load the shared pre-flight check instructions.
 
-```bash
-test -f Makefile && echo "MAKEFILE=yes"
-test -f .golangci.yml && echo "GO_LINT=yes"
-test -f ruff.toml -o -f pyproject.toml && echo "PYTHON_LINT=yes"
-test -f .yamllint.yml && echo "YAML_LINT=yes"
-test -f .pre-commit-config.yaml && echo "PRECOMMIT=yes"
-```
+2. Execute the pre-flight skill's phases in order:
+   a. CI Workflow Parsing — discover commands from
+      `.github/workflows/`
+   b. Local Tool Detection — check for config files
+      and verify binary availability
+   c. CI Coverage Matrix — build the matrix using the
+      CI check results from Step 3. Apply ci-aware
+      decision rules:
+      - CI PASS → skip locally (CI already verified)
+      - CI FAIL → skip locally (failure already
+        captured in Step 3a)
+      - CI NONE → MUST run locally
+      - No CI checks at all → MUST run ALL detected
+        local tools
+   d. Execution — run only tools marked "Yes" in the
+      coverage matrix
 
-**CI coverage check** (mandatory before running any
-tool): Build and display a coverage matrix that maps
-each detected local tool to the CI check from Step 3
-that covers the same verification. Display this matrix
-to make the skip/run decision visible:
+3. **Record results**: Use the pre-flight result format
+   (CI Coverage Matrix, Execution Results, Verdict).
+   If tools pass, skip those categories in the AI
+   review entirely. If tools fail, include the failure
+   output as context for Step 8 (AI review).
 
-| Local tool | CI check that covers it | CI status | Run locally? |
-|------------|------------------------|-----------|--------------|
-| `go test` | e.g., "Local CI / test" | PASS/FAIL/NONE | Yes/No |
-| `golangci-lint` | e.g., "CI Checks / lint" | PASS/FAIL/NONE | Yes/No |
-| ... | ... | ... | ... |
-
-Decision rules:
-- CI status PASS → skip locally ("No" — CI already
-  verified)
-- CI status FAIL → skip locally ("No" — failure already
-  captured in Step 3a, will be analyzed in Step 8d)
-- CI status NONE (no matching check) → MUST run
-  locally ("Yes")
-- No CI checks reported at all → MUST run ALL detected
-  local tools ("Yes" for every row)
-
-**Execution**: Run only the tools marked "Yes" in the
-matrix above:
-
-| Tool detected | Command to run | What it checks |
-|---------------|----------------|----------------|
-| Makefile | `make lint` (or `make check`) | Project-defined lint/format/vet |
-| `.golangci.yml` | `golangci-lint run ./...` | Go lint rules |
-| `ruff.toml` / `pyproject.toml` | `ruff check .` | Python lint rules |
-| `.yamllint.yml` | `yamllint .` | YAML lint rules |
-| `.pre-commit-config.yaml` | `pre-commit run --all-files` | Pre-commit hooks |
-| `go.mod` | `go test ./...` | Go tests |
-| `pyproject.toml` / `setup.py` | `pytest` or `python -m pytest` | Python tests |
-
-**Record results**: Capture tool exit codes and output.
-If tools pass, skip those categories in the AI review
-entirely. If tools fail, include the failure output as
-context.
-
-**If no tools are detected**: Note this and proceed to
-AI-based review for all categories.
+4. **If no tools are detected**: Note this and proceed
+   to AI-based review for all categories.
 
 ### 5. Fetch Diff (Scoped)
 
@@ -235,8 +213,13 @@ navigate it with targeted reads:
    - CRAP baselines: `.gaze/baseline.json`
 
 4. For very large PRs (2000+ lines or 50+ files),
-   warn the user and ask whether to review all files
-   or focus on specific ones.
+   warn the user and use the **AskUserQuestion tool**
+   with options `["Review all files", "Focus on
+   specific files"]`. If the user selects "Focus on
+   specific files", follow up with the
+   **AskUserQuestion tool** (open-ended, no preset
+   options) to ask which files or directories to
+   focus on.
 
 **Do NOT attempt**:
 - `gh pr diff <N> -- <path>` (unsupported, will fail)
@@ -268,71 +251,36 @@ targeting the PR's head ref (`git show`, `git fetch`,
 `git checkout`, `git diff` with remote refs) is
 prohibited.
 
-### 6. Locate Associated Specification
+### 6. Discover Review Context
 
-Search for a specification that matches this PR across all spec directories:
+Load the `review-context` skill for spec artifact
+discovery, issue linking, path classification, and
+walkthrough generation:
 
-- Check if the PR branch name matches a spec directory:
-  - `specs/<branch-name>/spec.md` (Speckit output)
-  - `openspec/specs/<branch-name>/spec.md` (OpenSpec specs)
-  - `openspec/changes/<branch-name>/proposal.md` (OpenSpec changes)
-- Check if the PR description references a spec
-- If not found locally, check the PR's changed file
-  list (from Step 2 metadata) for spec artifacts. The
-  spec may be introduced by the PR itself. If found
-  in the changed file list, read the spec content from
-  the saved diff (Step 5) rather than from the
-  filesystem.
-- If a Speckit spec is found, read only the **Functional Requirements** and **User Stories** sections (not the entire spec) to minimize token usage
-- If an OpenSpec proposal is found, read only the **Capabilities** and **Impact** sections
-- If no spec is found in any directory or in the PR's changed files, note this and use the PR title and description as the intent source
+1. Invoke the `skill` tool with name `review-context`
+   to load the shared context discovery instructions.
 
-#### 6a. Resolve Linked Issues
+2. Execute the skill's protocols in order:
+   a. Protocol 1 (Spec Artifact Discovery) — locate
+      the specification matching this PR using branch
+      name from Step 2 metadata, PR description, and
+      changed file list. If a spec is found in the
+      changed file list, read from the saved diff
+      (Step 5) rather than the filesystem.
+   b. Protocol 2 (Issue Linking) — parse the PR body
+      from Step 2 metadata for linked issues, validate,
+      fetch, sanitize, and extract acceptance criteria.
+   c. Protocol 3 (Path-Based Focus Heuristics) —
+      classify each changed file from the Step 2
+      metadata for review emphasis.
+   d. Protocol 4 (Walkthrough Generation) — generate
+      per-file change summaries while analyzing the
+      diff from Step 5.
 
-Parse the PR body (from Step 2 metadata) for issue
-references using case-insensitive regex:
-- `Fixes #N`, `Closes #N`, `Resolves #N`
-- GitHub URL variants:
-  `Fixes https://github.com/<owner>/<repo>/issues/N`
-
-**Validation and limits**:
-- Validate each parsed issue number as a positive
-  integer (digits only). Discard non-numeric values.
-- URL-format references: validate they belong to the
-  same `{owner}/{repo}` as the PR. List cross-repo
-  references in the output as "cross-repo — not
-  validated" but do NOT fetch them.
-- Limit to 5 linked issues maximum. If more than 5
-  are found, list extras as "listed but not fetched"
-  in the output.
-
-**Fetching**: For each in-scope linked issue:
-
-```bash
-gh issue view <N> --json title,body,labels
-```
-
-**Untrusted input handling**: Issue body content is
-user-controlled. Before incorporating into the review
-context:
-- Truncate to a maximum of 2000 characters.
-
-**Error handling**: If `gh issue view` returns 404,
-403, or times out, log the error, skip that issue, and
-note in the `### Linked Issues` section as "fetch
-failed". The review continues without blocking.
-
-**Acceptance criteria extraction**: From each fetched
-issue body, extract:
-- Checkbox lines (`- [ ]` or `- [x]`)
-- Content under an `## Acceptance Criteria` heading
-
-If neither exists, use the issue title and body as
-general intent context for the alignment check
-(Step 8a).
-
-Record the linked issues and their acceptance criteria
-for use in Step 8a and Step 9.
+3. **Record results**: Use the skill's Review Context
+   output format (Specification, Linked Issues, File
+   Classification, Walkthrough). This context is used
+   in Step 8 (AI review) and Step 9 (output).
 
 ### 7. Load Convention Packs (Optional)
 
@@ -437,38 +385,13 @@ analysis. For each finding:
   have additional context or a different severity
   assessment. Annotate, don't hide.
 
-**Path-based review focus**: Before starting the review,
-classify each changed file against these built-in
-heuristics. Record the focus category for each file
-(used in the Walkthrough output and as additive review
-context):
-
-| Path pattern | Focus category | Additional emphasis |
-|-------------|---------------|-------------------|
-| `*_test.go`, `*_test.py`, `**/__tests__/**`, `**/*_spec.*` | `test-quality` | Edge cases, assertion strength, mock isolation, test naming |
-| `**/cmd/**`, `**/cli/**` | `cli-ux` | Error messages, flag validation, help text |
-| `**/api/**`, `**/handler/**`, `**/middleware/**`, `**/routes/**` | `security` | Auth, input validation, injection |
-| `*.md`, `docs/**` | `documentation` | Clarity, accuracy, broken links |
-| `.github/workflows/**`, `Dockerfile*` | `ci-cd` | Permissions, pinned versions, secrets exposure |
-| `go.mod`, `package.json`, `requirements.txt` | `dependencies` | Maintenance status, license, scope |
-| Everything else | `standard` | Architecture, SOLID, coupling, baseline security |
-
-Path focus is **additive** — it supplements the standard
-review categories (alignment, security, constitution),
-not replaces them. Step 8b (Security Review) applies to
-ALL changed files regardless of path heuristic.
-
-When reviewing each file, append the matched focus
-instruction to the review context for that file.
-
-**Walkthrough generation**: While analyzing each file's
-diff, generate a one-line change summary describing
-what changed (e.g., "Add error handling for null
-inputs"), not how (no code snippets). Record the
-summary and focus category for each file — these are
-used in the `### Walkthrough` output section (Step 9).
-For PRs with 30+ files, generate directory-level
-summaries instead of per-file summaries.
+**Path-based review focus and walkthrough**: Use the
+file classifications and walkthrough summaries from
+Step 6 (review-context skill, Protocols 3 and 4).
+When reviewing each file, apply the matched focus
+instruction as additive review context. Step 8b
+(Security Review) applies to ALL changed files
+regardless of path heuristic.
 
 #### 8a. Alignment Check
 
@@ -478,7 +401,7 @@ Compare the PR intent (title + description + linked spec + linked issues) agains
 - **Requirement coverage**: For each requirement in the spec (if found), verify the code changes address it. Flag uncovered requirements.
 - **Completeness**: Are there partial implementations that could leave the system in an inconsistent state?
 - **Drift detection**: Does the code do anything NOT described in the intent/spec? Flag undocumented behavioral changes.
-- **Issue criteria coverage**: For each acceptance criterion from linked issues (Step 6a), verify the code changes address it. Report uncovered criteria as MEDIUM findings with per-criterion status (COVERED / NOT COVERED / PARTIAL).
+- **Issue criteria coverage**: For each acceptance criterion from linked issues (Step 6, Protocol 2), verify the code changes address it. Report uncovered criteria as MEDIUM findings with per-criterion status (COVERED / NOT COVERED / PARTIAL).
 - **Issue suggestion gap detection**: After checking
   acceptance criteria, scan each linked issue body for
   explicit code suggestions — fenced code blocks
@@ -658,7 +581,7 @@ Present findings in this structured format:
 | `internal/gateway/` | 3 | Token refresh and provider detection | security |
 
 ### Linked Issues
-<Only include this section if Step 6a found linked issues>
+<Only include this section if Step 6 found linked issues>
 | Issue | Title | Criteria |
 |-------|-------|----------|
 | #38 | Export metrics to CSV | 3/4 COVERED |
@@ -710,12 +633,12 @@ I identified <N> pre-existing CI failure(s) that are NOT caused by this PR:
 - <check name>: <brief description of failure>
 
 These failures also occur on the base branch (<BASE_BRANCH>).
-
-Would you like me to create a fix branch with a proposed resolution?
-I will create the branch and commit locally — you can review the changes and file a PR when ready.
 ```
 
-**If the user agrees**:
+Use the **AskUserQuestion tool** with options
+`["Yes -- create fix branch", "No -- skip"]`.
+
+**If the user selects "Yes -- create fix branch"**:
 
 1. **Verify clean working tree**:
    ```bash
@@ -765,8 +688,27 @@ I will create the branch and commit locally — you can review the changes and f
 
    This failure was pre-existing on <BASE_BRANCH> and unrelated to PR #<PR_NUMBER>.
 
-   Assisted-by: OpenCode (<model>)
+   Assisted-by: <model>
    ```
+
+   Where `<model>` is the model family name you are
+   currently running as. To resolve the model name:
+   (1) read your model identifier from the system
+   prompt or runtime environment; (2) remove everything
+   before and including the last `/`; (3) remove
+   everything after and including the first `@`;
+   (4) remove any trailing date suffix matching
+   `-YYYYMMDD` (a hyphen followed by exactly 8 digits);
+   (5) repeatedly remove any trailing version segment
+   matching `-N` (a hyphen followed by a single digit
+   at the end) until no more remain; (6) validate the
+   result contains only
+   `[a-zA-Z0-9._-]` characters. If the result is
+   empty, contains invalid characters, or cannot be
+   determined, use the literal string `unknown-model`
+   and warn the user (e.g., "Could not determine AI
+   model name — using 'unknown-model' in
+   attribution").
    Remove the temp file after committing.
 
 7. **Report to the user**:
@@ -805,15 +747,13 @@ GitHub review on the PR:
 ```
 I found <N> findings (X CRITICAL, Y HIGH).
 Verdict: <APPROVE / REQUEST CHANGES / COMMENT>
-
-Would you like me to post this as a GitHub review so the
-author can see the findings in context?
-
-I will prepare the review and show it to you for approval
-before posting anything.
 ```
 
-**If the user agrees**:
+Use the **AskUserQuestion tool** with options
+`["Yes -- post as GitHub review", "No -- terminal
+summary is sufficient"]`.
+
+**If the user selects "Yes -- post as GitHub review"**:
 
 #### 11a. Pre-posting Checks
 
@@ -825,19 +765,18 @@ the current user (Step 7.5c) already exists in the
 review list (Step 7.5a):
 
 - If a prior review with the **same verdict** exists:
-  ```
-  You already have an <APPROVE/REQUEST_CHANGES> review
-  on this PR. Post a new one? (The latest review takes
-  precedence.)
-  (yes/no)
-  ```
+  Inform the user that a prior review exists and the
+  latest review takes precedence. Use the
+  **AskUserQuestion tool** with options
+  `["Yes -- post new review", "No -- skip posting"]`.
+
 - If a prior review with a **different verdict** exists:
-  ```
-  You have a prior <old_verdict> review. Post a new
-  <new_verdict>? This will override the previous
-  verdict.
-  (yes/no)
-  ```
+  Inform the user of the prior verdict and that the new
+  review will override it. Use the
+  **AskUserQuestion tool** with options
+  `["Yes -- override with <new_verdict>",
+  "No -- keep existing <old_verdict>"]`.
+
 - If no prior review exists: proceed silently.
 
 **Stale review + CODEOWNER checks** (APPROVE verdicts
@@ -929,27 +868,23 @@ If any API call fails: skip silently.
    - REQUEST CHANGES → `"event": "REQUEST_CHANGES"`
    - COMMENT → `"event": "COMMENT"`
 
-   Display the confirmation prompt with the verdict type:
+   Display the verdict context, then use the
+   **AskUserQuestion tool** for confirmation:
 
-   For APPROVE verdicts:
-   ```
-   Post review as APPROVE with N comments?
-   ⚠ This may unblock merge in repos with branch
-     protection. This review will be labeled as
-     AI-generated.
-   Type "approve" to confirm:
-   (approve/no/edit/change-verdict)
-   ```
+   For APPROVE verdicts: inform the user that this may
+   unblock merge in repos with branch protection and
+   that the review will be labeled as AI-generated.
+   Use the **AskUserQuestion tool** with options
+   `["Approve -- post review", "No -- skip posting",
+   "Edit comments first", "Change verdict"]`.
 
-   For REQUEST CHANGES or COMMENT verdicts:
-   ```
-   Post review as REQUEST CHANGES with N comments?
-   ⚠ This will block merge in repos with branch
-     protection.
-   (yes/no/edit/change-verdict)
-   ```
+   For REQUEST CHANGES or COMMENT verdicts: inform the
+   user that this will block merge in repos with branch
+   protection. Use the **AskUserQuestion tool** with
+   options `["Yes -- post review", "No -- skip posting",
+   "Edit comments first", "Change verdict"]`.
 
-   The `change-verdict` option lets the user override the
+   The "Change verdict" option lets the user override the
    computed verdict (e.g., downgrade REQUEST CHANGES to
    COMMENT).
 
@@ -985,13 +920,14 @@ If any API call fails: skip silently.
    token lacks write permissions for PR reviews and
    suggest re-authenticating with `gh auth login`.
 
-   - **no**: Skip posting, the terminal summary is sufficient
-   - **edit**: Let the user modify comments before posting, then re-confirm
+   - **"No -- skip posting"**: Skip posting, the terminal summary is sufficient
+   - **"Edit comments first"**: Let the user modify comments before posting, then re-confirm with the **AskUserQuestion tool**
 
 5. **CRITICAL RULE**: NEVER post reviews without explicit
-   human confirmation. Always show the exact content
-   (verdict type + all comments) that will be posted and
-   wait for approval. For APPROVE verdicts, require the
-   user to type "approve" explicitly — not just "yes" —
-   to prevent reflexive confirmation of merge-unblocking
-   reviews.
+   human confirmation via the **AskUserQuestion tool**.
+   Always show the exact content (verdict type + all
+   comments) that will be posted and wait for the user
+   to select a confirming option. For APPROVE verdicts,
+   the user MUST select the "Approve -- post review"
+   option — a clearly-labeled action that conveys the
+   merge-unblocking consequence.
