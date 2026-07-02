@@ -140,7 +140,7 @@ Load context for evidence-based classification (D10, FR-010):
    - Speckit: `specs/NNN-*/` matching branch pattern
    - OpenSpec: `openspec/changes/*/` matching branch
 5. Linked issues from PR description (`Fixes #N`, `Closes #N`, `Resolves #N`) — load acceptance criteria
-6. If `review-context` convention pack exists, use it for standardized discovery. Otherwise inline the discovery logic above.
+6. Invoke the `skill` tool with name `review-context` to load standardized context discovery (spec artifacts, linked issues, path classification).
 
 ### 2.2 Tiered Assessment
 
@@ -238,14 +238,16 @@ If the item has a GitHub suggestion block, display it clearly as an applicable c
 
 ### 3.2 Author Decision
 
-For each item, the author chooses exactly one:
+For each item, use the **AskUserQuestion tool** with
+options `["Accept", "Modify", "Reject", "Ask"]`. The
+author chooses exactly one:
 
-| Decision | Author provides | Queued action |
+| Decision | Follow-up | Queued action |
 |---|---|---|
-| **ACCEPT** | (nothing) | Code change using suggested approach |
-| **MODIFY** | Alternative approach | Code change using author's approach |
-| **REJECT** | Evidence-based reasoning | Reply comment with reasoning |
-| **ASK** | Clarification question | Reply comment with question |
+| **Accept** | (none) | Code change using suggested approach |
+| **Modify** | Use **AskUserQuestion tool** (open-ended, no preset options) to collect the alternative approach | Code change using author's approach |
+| **Reject** | Use **AskUserQuestion tool** (open-ended, no preset options) to collect evidence-based reasoning | Reply comment with reasoning |
+| **Ask** | Use **AskUserQuestion tool** (open-ended, no preset options) to collect the clarification question | Reply comment with question |
 
 **No item may be skipped or deferred.** Every item MUST receive a decision before the triage phase completes.
 
@@ -267,7 +269,10 @@ Total:   N items
 ─────────────────────────────────────────
 ```
 
-List each item with its decision. The author MUST confirm before execution proceeds.
+List each item with its decision. Use the
+**AskUserQuestion tool** with options `["Confirm --
+proceed with execution", "Revise -- change decisions"]`
+before execution proceeds.
 
 ---
 
@@ -294,8 +299,26 @@ fix(<scope>): <description>
 Addresses PR #<PR_NUMBER> review feedback from @<reviewer>.
 
 Signed-off-by: <author>
-Assisted-by: OpenCode (<model>)
+Assisted-by: <model>
 ```
+
+Where `<model>` is the model family name you are
+currently running as. To resolve the model name:
+(1) read your model identifier from the system prompt
+or runtime environment; (2) remove everything before
+and including the last `/`; (3) remove everything
+after and including the first `@`; (4) remove any
+trailing date suffix matching `-YYYYMMDD` (a hyphen
+followed by exactly 8 digits); (5) repeatedly remove
+any trailing version segment matching `-N` (a hyphen
+followed by a single digit at the end) until no more
+remain; (6) validate the result
+contains only `[a-zA-Z0-9._-]` characters. If the
+result is empty, contains invalid characters, or
+cannot be determined, use the literal string
+`unknown-model` and warn the user (e.g., "Could not
+determine AI model name — using 'unknown-model' in
+attribution").
 
 The `<scope>` is the package or directory of the changed files. The description summarizes the logical group of fixes.
 
@@ -316,11 +339,10 @@ git fetch origin <branch>
 git status
 ```
 
-**If branch has diverged** (another contributor pushed commits): warn the author and present options:
-- Rebase onto remote and push
-- Abort (preserve local commits for manual resolution)
-
-The author MUST confirm before proceeding.
+**If branch has diverged** (another contributor pushed
+commits): warn the author and use the
+**AskUserQuestion tool** with options `["Rebase onto
+remote and push", "Abort -- preserve local commits"]`.
 
 Push all commits:
 
@@ -333,7 +355,10 @@ git push origin <branch>
 
 ### 4.5 Post Reply Comments
 
-After push succeeds (or if there are no code changes), post reply comments to the PR. All comment posting requires author confirmation before execution.
+After push succeeds (or if there are no code changes),
+post reply comments to the PR. Before posting, use the
+**AskUserQuestion tool** with options `["Yes -- post
+reply comments", "No -- skip posting"]`.
 
 For each item, compose the reply:
 
@@ -379,7 +404,9 @@ After posting reply comments for accepted items, offer to resolve those threads:
 gh api graphql -f query='mutation { resolveReviewThread(input: {threadId: "<thread_id>"}) { thread { isResolved } } }'
 ```
 
-The author confirms before resolving.
+Use the **AskUserQuestion tool** with options
+`["Yes -- resolve accepted threads", "No -- leave
+threads open"]` before resolving.
 
 ### 4.7 Produce Feedback-Triage Artifact
 

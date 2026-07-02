@@ -270,8 +270,10 @@ If label creation fails due to insufficient permissions, report the specific lab
 gh issue edit <ISSUE_NUMBER> --add-label "<label>"
 ```
 
-**For `duplicate` label only**: Present to the user for confirmation before applying:
-> "The `duplicate` label will be applied to issue #<ISSUE_NUMBER>. This signals the issue should be closed. Confirm? (yes/no)"
+**For `duplicate` label only**: Inform the user that the
+`duplicate` label signals the issue should be closed.
+Use the **AskUserQuestion tool** with options
+`["Yes -- apply duplicate label", "No -- skip"]`.
 
 ### 4.3 Comment Composition and Posting
 
@@ -290,18 +292,27 @@ _This triage was performed by the Divisor review panel._
 
 **If duplicate candidates were found** (but not classified as duplicate): mention similar issues in the comment for the reporter's awareness.
 
-**Re-run check**: If a previous triage comment was detected in Phase 1.2, warn the user:
-> "A previous triage comment was detected on this issue. Posting another comment may cause confusion. Proceed?"
+**Re-run check**: If a previous triage comment was
+detected in Phase 1.2, warn the user that posting
+another comment may cause confusion. Use the
+**AskUserQuestion tool** with options `["Yes -- post
+another comment", "No -- skip comment"]`. If the user
+selects "No -- skip comment", record
+`comment_posted: false` in the artifact and skip to
+Phase 4.4.
 
-**Present the composed comment to the user for confirmation**:
+**Present the composed comment to the user for
+confirmation**: Use the **AskUserQuestion tool** with
+options `["Approve -- post as-is", "Modify -- adjust
+comment text", "Abort -- do not post"]`.
 
-| Decision | Action |
+| Selection | Action |
 |---|---|
-| **APPROVE** | Post the comment as-is |
-| **MODIFY** | User provides adjusted comment text; post the adjusted version |
-| **ABORT** | Do not post any comment; record `comment_posted: false` in artifact |
+| **Approve -- post as-is** | Post the comment as-is |
+| **Modify -- adjust comment text** | Use **AskUserQuestion tool** (open-ended, no preset options) to collect the adjusted comment text; post the adjusted version |
+| **Abort -- do not post** | Do not post any comment; record `comment_posted: false` in artifact |
 
-**Post the comment** (on APPROVE or MODIFY):
+**Post the comment** (on Approve or Modify):
 
 Write the comment body to a temporary file and post via `gh api --input`. NEVER interpolate comment text into shell arguments.
 
@@ -329,7 +340,10 @@ This section applies only when Phase 3.5 produced split recommendations.
 
 For each proposed child issue:
 
-1. **Present to user**: Show the proposed title and body. The user confirms each child issue individually.
+1. **Present to user**: Show the proposed title and body.
+   Use the **AskUserQuestion tool** with options
+   `["Yes -- create this child issue", "No -- skip"]`
+   for each child issue individually.
 
 2. **Duplicate check**: Before creating, search for existing issues matching the proposed title:
 
@@ -337,9 +351,12 @@ For each proposed child issue:
 gh issue list --search "<sanitized-child-title>" --state open --json number,title --limit 5
 ```
 
-If a close match is found, warn the user and ask whether to proceed.
+   If a close match is found, warn the user about the
+   potential duplicate and use the **AskUserQuestion
+   tool** with options `["Yes -- create anyway",
+   "No -- skip this child issue"]`.
 
-3. **Create the child issue** (on confirmation):
+3. **Create the child issue** (if the user selected a confirming option):
 
 Each child issue body MUST include a cross-reference: `Split from #<ISSUE_NUMBER>`.
 
