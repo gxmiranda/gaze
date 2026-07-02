@@ -1,10 +1,19 @@
 package aireport
 
 import (
+	"fmt"
 	"io"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
+
+	"github.com/unbound-force/gaze/internal/analysis"
+	"github.com/unbound-force/gaze/internal/config"
+	"github.com/unbound-force/gaze/internal/quality"
+	"github.com/unbound-force/gaze/internal/taxonomy"
 )
 
 // TestLoadGazeConfigBestEffort_AlwaysNonNil verifies that the function always
@@ -115,5 +124,452 @@ func TestRunProductionPipeline_RealPackage(t *testing.T) {
 	// CRAP step must succeed for a real package.
 	if payload.CRAP == nil && payload.Errors.CRAP == nil {
 		t.Error("expected either CRAP JSON or CRAP error, got both nil")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Test helpers: synthetic data builders for DI tests
+// ---------------------------------------------------------------------------
+
+// syntheticAnalysisResult returns a minimal AnalysisResult with one side
+// effect. When label is non-nil, the effect carries a Classification.
+func syntheticAnalysisResult(pkg, fn string, label *taxonomy.ClassificationLabel) []taxonomy.AnalysisResult {
+	se := taxonomy.SideEffect{
+		ID:          "se-test0001",
+		Type:        taxonomy.ReturnValue,
+		Tier:        taxonomy.TierP0,
+		Location:    "fake.go:1:1",
+		Description: "returns int",
+		Target:      "result",
+	}
+	if label != nil {
+		se.Classification = &taxonomy.Classification{
+			Label:      *label,
+			Confidence: 90,
+		}
+	}
+	return []taxonomy.AnalysisResult{{
+		Target: taxonomy.FunctionTarget{
+			Package:  pkg,
+			Function: fn,
+		},
+		SideEffects: []taxonomy.SideEffect{se},
+	}}
+}
+
+// syntheticQualityReport returns a minimal QualityReport for testing.
+func syntheticQualityReport(fn string) taxonomy.QualityReport {
+	return taxonomy.QualityReport{
+		TestFunction: "Test_" + fn,
+		TargetFunction: taxonomy.FunctionTarget{
+			Function: fn,
+		},
+		ContractCoverage: taxonomy.ContractCoverage{Percentage: 80},
+	}
+}
+
+// fakeDepsSuccess returns a qualityPipelineDeps where every function
+// succeeds with minimal synthetic data. Individual fields can be
+// overridden after construction.
+func fakeDepsSuccess() qualityPipelineDeps {
+	contractual := taxonomy.Contractual
+	return qualityPipelineDeps{
+		resolvePackagePaths: func(patterns []string, _ string) ([]string, error) {
+			return patterns, nil
+		},
+		loadAndAnalyze: func(pattern string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+			return syntheticAnalysisResult(pattern, "Foo", &contractual), nil
+		},
+		classifyResults: func(results []taxonomy.AnalysisResult, _ string, _ *config.GazeConfig, _ []*packages.Package) ([]taxonomy.AnalysisResult, error) {
+			return results, nil
+		},
+		loadTestPkg: func(_ string) (*packages.Package, error) {
+			return &packages.Package{Name: "fake_test"}, nil
+		},
+		assess: func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+			return []taxonomy.QualityReport{syntheticQualityReport("Foo")}, &taxonomy.PackageSummary{
+				TotalTests:              1,
+				AverageContractCoverage: 80,
+			}, nil
+		},
+		resolveModulePkgs: func(_ string) []*packages.Package {
+			return []*packages.Package{{Name: "fake"}}
+		},
+		loadConfig: func(_ string) *config.GazeConfig {
+			return config.DefaultConfig()
+		},
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 2.2: Unit tests for runQualityForPackage
+// ---------------------------------------------------------------------------
+
+func TestRunQualityForPackage_DI_Success(t *testing.T) {
+	deps := fakeDepsSuccess()
+	reports, degraded := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	if reports == nil {
+		t.Fatal("expected non-nil reports on success path")
+	}
+	if len(reports) != 1 {
+		t.Fatalf("expected 1 report, got %d", len(reports))
+	}
+	if degraded != "" {
+		t.Errorf("expected empty degraded string, got %q", degraded)
+	}
+}
+
+func TestRunQualityForPackage_DI_AnalysisError(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.loadAndAnalyze = func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		return nil, fmt.Errorf("analysis failed")
+	}
+	reports, degraded := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	if reports != nil {
+		t.Errorf("expected nil reports on analysis error, got %d", len(reports))
+	}
+	if degraded != "" {
+		t.Errorf("expected empty degraded string, got %q", degraded)
+	}
+}
+
+func TestRunQualityForPackage_DI_EmptyResults(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.loadAndAnalyze = func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		return []taxonomy.AnalysisResult{}, nil
+	}
+	reports, degraded := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	if reports != nil {
+		t.Errorf("expected nil reports on empty results, got %d", len(reports))
+	}
+	if degraded != "" {
+		t.Errorf("expected empty degraded string, got %q", degraded)
+	}
+}
+
+func TestRunQualityForPackage_DI_ClassifyError(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.classifyResults = func(_ []taxonomy.AnalysisResult, _ string, _ *config.GazeConfig, _ []*packages.Package) ([]taxonomy.AnalysisResult, error) {
+		return nil, fmt.Errorf("classify failed")
+	}
+	reports, degraded := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	if reports != nil {
+		t.Errorf("expected nil reports on classify error, got %d", len(reports))
+	}
+	if degraded != "" {
+		t.Errorf("expected empty degraded string, got %q", degraded)
+	}
+}
+
+func TestRunQualityForPackage_DI_LoadTestError(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.loadTestPkg = func(_ string) (*packages.Package, error) {
+		return nil, fmt.Errorf("no test package found")
+	}
+	reports, degraded := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	if reports != nil {
+		t.Errorf("expected nil reports on loadTestPkg error, got %d", len(reports))
+	}
+	if degraded != "" {
+		t.Errorf("expected empty degraded string, got %q", degraded)
+	}
+}
+
+func TestRunQualityForPackage_DI_AssessError(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+		return nil, nil, fmt.Errorf("assess failed")
+	}
+	reports, degraded := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	if reports != nil {
+		t.Errorf("expected nil reports on assess error, got %d", len(reports))
+	}
+	if degraded != "" {
+		t.Errorf("expected empty degraded string, got %q", degraded)
+	}
+}
+
+func TestRunQualityForPackage_DI_SSADegraded(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+		return []taxonomy.QualityReport{syntheticQualityReport("Foo")}, &taxonomy.PackageSummary{
+			TotalTests:              1,
+			AverageContractCoverage: 50,
+			SSADegraded:             true,
+		}, nil
+	}
+	reports, degraded := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	if reports == nil {
+		t.Fatal("expected non-nil reports on SSA degradation")
+	}
+	if degraded != "fake/pkg" {
+		t.Errorf("expected degraded=%q, got %q", "fake/pkg", degraded)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 2.3: Unit tests for runQualityStep
+// ---------------------------------------------------------------------------
+
+func TestRunQualityStep_DI_SinglePackage(t *testing.T) {
+	deps := fakeDepsSuccess()
+	result, err := runQualityStep([]string{"fake/pkg"}, "/tmp", io.Discard, deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil qualityStepResult")
+	}
+	if result.JSON == nil {
+		t.Error("expected non-nil JSON")
+	}
+	if result.SSADegraded {
+		t.Error("expected SSADegraded=false")
+	}
+}
+
+func TestRunQualityStep_DI_MultiplePackages(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return []string{"fake/pkg1", "fake/pkg2"}, nil
+	}
+	result, err := runQualityStep([]string{"./..."}, "/tmp", io.Discard, deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected non-nil qualityStepResult")
+	}
+	if result.JSON == nil {
+		t.Error("expected non-nil JSON")
+	}
+	// AvgContractCoverage should be computed from 2 reports.
+	// Both fake reports return 80% coverage, so the average should be 80.
+	if result.AvgContractCoverage != 80 {
+		t.Errorf("expected AvgContractCoverage=80, got %d", result.AvgContractCoverage)
+	}
+}
+
+func TestRunQualityStep_DI_ResolveError(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return nil, fmt.Errorf("resolve failed")
+	}
+	_, err := runQualityStep([]string{"./..."}, "/tmp", io.Discard, deps)
+	if err == nil {
+		t.Fatal("expected error on resolve failure")
+	}
+	if !strings.Contains(err.Error(), "resolving packages") {
+		t.Errorf("expected 'resolving packages' in error, got: %v", err)
+	}
+}
+
+func TestRunQualityStep_DI_ResolveEmpty(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return []string{}, nil
+	}
+	_, err := runQualityStep([]string{"./..."}, "/tmp", io.Discard, deps)
+	if err == nil {
+		t.Fatal("expected error on empty resolve result")
+	}
+	if !strings.Contains(err.Error(), "no packages matched") {
+		t.Errorf("expected 'no packages matched' in error, got: %v", err)
+	}
+}
+
+func TestRunQualityStep_DI_SSADegradation(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+		return []taxonomy.QualityReport{syntheticQualityReport("Foo")}, &taxonomy.PackageSummary{
+			TotalTests:              1,
+			AverageContractCoverage: 50,
+			SSADegraded:             true,
+		}, nil
+	}
+	result, err := runQualityStep([]string{"fake/pkg"}, "/tmp", io.Discard, deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !result.SSADegraded {
+		t.Error("expected SSADegraded=true")
+	}
+	if len(result.SSADegradedPackages) != 1 || result.SSADegradedPackages[0] != "fake/pkg" {
+		t.Errorf("expected SSADegradedPackages=[fake/pkg], got %v", result.SSADegradedPackages)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 2.4: Unit tests for runClassifyStep
+// ---------------------------------------------------------------------------
+
+func TestRunClassifyStep_DI_Success(t *testing.T) {
+	contractual := taxonomy.Contractual
+	ambiguous := taxonomy.Ambiguous
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return []string{"fake/pkg"}, nil
+	}
+	deps.loadAndAnalyze = func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		// Return results with 2 contractual + 1 ambiguous effects.
+		return []taxonomy.AnalysisResult{{
+			Target: taxonomy.FunctionTarget{Package: "fake/pkg", Function: "Foo"},
+			SideEffects: []taxonomy.SideEffect{
+				{ID: "se-1", Type: taxonomy.ReturnValue, Classification: &taxonomy.Classification{Label: contractual, Confidence: 90}},
+				{ID: "se-2", Type: taxonomy.ErrorReturn, Classification: &taxonomy.Classification{Label: contractual, Confidence: 85}},
+				{ID: "se-3", Type: taxonomy.MapMutation, Classification: &taxonomy.Classification{Label: ambiguous, Confidence: 55}},
+			},
+		}}, nil
+	}
+	deps.classifyResults = func(results []taxonomy.AnalysisResult, _ string, _ *config.GazeConfig, _ []*packages.Package) ([]taxonomy.AnalysisResult, error) {
+		return results, nil // passthrough — labels already set
+	}
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contractual != 2 {
+		t.Errorf("expected Contractual=2, got %d", result.Contractual)
+	}
+	if result.Ambiguous != 1 {
+		t.Errorf("expected Ambiguous=1, got %d", result.Ambiguous)
+	}
+	if result.Incidental != 0 {
+		t.Errorf("expected Incidental=0, got %d", result.Incidental)
+	}
+	if result.JSON == nil {
+		t.Error("expected non-nil JSON")
+	}
+}
+
+func TestRunClassifyStep_DI_ResolveError(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return nil, fmt.Errorf("resolve failed")
+	}
+	_, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	if err == nil {
+		t.Fatal("expected error on resolve failure")
+	}
+	if !strings.Contains(err.Error(), "resolving packages for classification") {
+		t.Errorf("expected 'resolving packages for classification' in error, got: %v", err)
+	}
+}
+
+func TestRunClassifyStep_DI_ResolveEmpty(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return []string{}, nil
+	}
+	_, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	if err == nil {
+		t.Fatal("expected error on empty resolve result")
+	}
+	if !strings.Contains(err.Error(), "no packages matched") {
+		t.Errorf("expected 'no packages matched' in error, got: %v", err)
+	}
+}
+
+func TestRunClassifyStep_DI_AnalysisErrorSkip(t *testing.T) {
+	contractual := taxonomy.Contractual
+	callCount := 0
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return []string{"fake/pkg1", "fake/pkg2"}, nil
+	}
+	deps.loadAndAnalyze = func(pattern string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		callCount++
+		if pattern == "fake/pkg1" {
+			return nil, fmt.Errorf("analysis failed for pkg1")
+		}
+		return syntheticAnalysisResult(pattern, "Bar", &contractual), nil
+	}
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if callCount != 2 {
+		t.Errorf("expected loadAndAnalyze called 2 times, got %d", callCount)
+	}
+	// Only pkg2's results should contribute (1 contractual effect).
+	if result.Contractual != 1 {
+		t.Errorf("expected Contractual=1 (from pkg2 only), got %d", result.Contractual)
+	}
+}
+
+func TestRunClassifyStep_DI_EmptyResultsSkip(t *testing.T) {
+	contractual := taxonomy.Contractual
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return []string{"fake/empty", "fake/notempty"}, nil
+	}
+	deps.loadAndAnalyze = func(pattern string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		if pattern == "fake/empty" {
+			return []taxonomy.AnalysisResult{}, nil
+		}
+		return syntheticAnalysisResult(pattern, "Baz", &contractual), nil
+	}
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Contractual != 1 {
+		t.Errorf("expected Contractual=1 (from notempty only), got %d", result.Contractual)
+	}
+}
+
+func TestRunClassifyStep_DI_ClassifyErrorSkip(t *testing.T) {
+	contractual := taxonomy.Contractual
+	deps := fakeDepsSuccess()
+	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
+		return []string{"fake/bad", "fake/good"}, nil
+	}
+	deps.loadAndAnalyze = func(pattern string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		return syntheticAnalysisResult(pattern, "Qux", &contractual), nil
+	}
+	deps.classifyResults = func(results []taxonomy.AnalysisResult, pkgPath string, _ *config.GazeConfig, _ []*packages.Package) ([]taxonomy.AnalysisResult, error) {
+		if pkgPath == "fake/bad" {
+			return nil, fmt.Errorf("classify failed for bad pkg")
+		}
+		return results, nil
+	}
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Only fake/good's results should contribute.
+	if result.Contractual != 1 {
+		t.Errorf("expected Contractual=1 (from good only), got %d", result.Contractual)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Task 2.5: Unit tests for loadTestPackageForQuality
+// ---------------------------------------------------------------------------
+
+func TestLoadTestPackageForQuality_WithTests(t *testing.T) {
+	pkg, err := loadTestPackageForQuality("github.com/unbound-force/gaze/internal/quality/testdata/src/welltested")
+	if err != nil {
+		t.Fatalf("expected success for package with tests, got error: %v", err)
+	}
+	if pkg == nil {
+		t.Fatal("expected non-nil package")
+	}
+}
+
+func TestLoadTestPackageForQuality_WithoutTests(t *testing.T) {
+	_, err := loadTestPackageForQuality("github.com/unbound-force/gaze/internal/analysis/testdata/src/returns")
+	if err == nil {
+		t.Fatal("expected error for package without tests")
+	}
+	if !strings.Contains(err.Error(), "no test package found") {
+		t.Errorf("expected 'no test package found' in error, got: %v", err)
+	}
+}
+
+func TestLoadTestPackageForQuality_NonExistent(t *testing.T) {
+	_, err := loadTestPackageForQuality("github.com/nonexistent/does-not-exist")
+	if err == nil {
+		t.Fatal("expected error for non-existent package")
 	}
 }

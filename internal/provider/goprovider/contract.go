@@ -139,7 +139,11 @@ func BuildContractCoverageFunc(
 			}
 		}
 
-		reports, degradedPkg := analyzePackageCoverage(pkgPath, moduleDir, gazeConfig, stderr, aiMapperFn...)
+		var ccDeps contractCoverageDeps
+		if len(aiMapperFn) > 0 && aiMapperFn[0] != nil {
+			ccDeps.aiMapperFn = aiMapperFn[0]
+		}
+		reports, degradedPkg := analyzePackageCoverage(pkgPath, moduleDir, gazeConfig, stderr, ccDeps)
 		if degradedPkg != "" {
 			degradedPkgs = append(degradedPkgs, degradedPkg)
 		}
@@ -211,26 +215,56 @@ func BuildContractCoverageFunc(
 	}, degradedPkgs
 }
 
+// contractCoverageDeps holds injectable dependencies for
+// analyzePackageCoverage, enabling unit testing with synthetic
+// implementations instead of loading real Go packages.
+type contractCoverageDeps struct {
+	loadAndAnalyze  func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)
+	classifyResults func([]taxonomy.AnalysisResult, string, string, *config.GazeConfig) []taxonomy.AnalysisResult
+	loadTestPkg     func(string) (*packages.Package, error)
+	assess          func([]taxonomy.AnalysisResult, *packages.Package, quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error)
+	aiMapperFn      quality.AIMapperFunc
+}
+
 // analyzePackageCoverage runs the 4-step quality pipeline on a single
 // package (analysis -> classify -> test-load -> quality assess) and
 // returns the quality reports. The second return value is the degraded
 // package path (empty if SSA succeeded). Returns nil if any step fails.
 //
-// The optional aiMapperFn parameter enables AI-assisted assertion
-// mapping when non-nil. It is passed through to quality.Options.AIMapperFunc.
+// The optional deps parameter enables dependency injection for
+// testing. When omitted (or when individual fields are nil),
+// production implementations are used as defaults.
 func analyzePackageCoverage(
 	pkgPath string,
 	moduleDir string,
 	gazeConfig *config.GazeConfig,
 	stderr io.Writer,
-	aiMapperFn ...quality.AIMapperFunc,
+	deps ...contractCoverageDeps,
 ) ([]taxonomy.QualityReport, string) {
+	// Resolve deps with nil-means-default pattern.
+	var d contractCoverageDeps
+	if len(deps) > 0 {
+		d = deps[0]
+	}
+	if d.loadAndAnalyze == nil {
+		d.loadAndAnalyze = analysis.LoadAndAnalyze
+	}
+	if d.classifyResults == nil {
+		d.classifyResults = classifyResults
+	}
+	if d.loadTestPkg == nil {
+		d.loadTestPkg = loadTestPackage
+	}
+	if d.assess == nil {
+		d.assess = quality.Assess
+	}
+
 	analysisOpts := analysis.Options{
 		IncludeUnexported: loader.IsMainPkg(pkgPath),
 	}
 
 	// Step 1: Analyze (Spec 001).
-	results, err := analysis.LoadAndAnalyze(pkgPath, analysisOpts)
+	results, err := d.loadAndAnalyze(pkgPath, analysisOpts)
 	if err != nil {
 		return nil, ""
 	}
@@ -239,13 +273,13 @@ func analyzePackageCoverage(
 	}
 
 	// Step 2: Classify (Spec 002).
-	classified := classifyResults(results, pkgPath, moduleDir, gazeConfig)
+	classified := d.classifyResults(results, pkgPath, moduleDir, gazeConfig)
 	if classified == nil {
 		return nil, ""
 	}
 
 	// Step 3: Load test package.
-	testPkg, err := loadTestPackage(pkgPath)
+	testPkg, err := d.loadTestPkg(pkgPath)
 	if err != nil {
 		return nil, ""
 	}
@@ -254,10 +288,10 @@ func analyzePackageCoverage(
 	qualOpts := quality.Options{
 		Stderr: stderr,
 	}
-	if len(aiMapperFn) > 0 && aiMapperFn[0] != nil {
-		qualOpts.AIMapperFunc = aiMapperFn[0]
+	if d.aiMapperFn != nil {
+		qualOpts.AIMapperFunc = d.aiMapperFn
 	}
-	reports, summary, err := quality.Assess(classified, testPkg, qualOpts)
+	reports, summary, err := d.assess(classified, testPkg, qualOpts)
 	if err != nil {
 		return nil, ""
 	}
