@@ -1,144 +1,81 @@
 package crap
 
 import (
-	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
-
-	"github.com/unbound-force/gaze/internal/config"
 )
 
 // ---------------------------------------------------------------------------
-// extractShortPkgName tests
+// Contract coverage closure behavior tests
+// These test the lookup closure behavior with ContractCoverageInfo,
+// independent of the quality pipeline. The pipeline orchestration
+// itself lives in internal/provider/goprovider/contract.go.
 // ---------------------------------------------------------------------------
 
-func TestExtractShortPkgName_WithSlash(t *testing.T) {
-	got := extractShortPkgName("github.com/unbound-force/gaze/internal/crap")
-	if got != "crap" {
-		t.Errorf("extractShortPkgName(...crap) = %q, want %q", got, "crap")
-	}
-}
-
-func TestExtractShortPkgName_NoSlash(t *testing.T) {
-	got := extractShortPkgName("main")
-	if got != "main" {
-		t.Errorf("extractShortPkgName(main) = %q, want %q", got, "main")
-	}
-}
-
-func TestExtractShortPkgName_TrailingSlash(t *testing.T) {
-	// Last segment after final slash is an empty string when path ends with /.
-	got := extractShortPkgName("github.com/user/repo/")
-	if got != "" {
-		t.Errorf("extractShortPkgName(.../repo/) = %q, want %q (empty)", got, "")
-	}
-}
-
-func TestExtractShortPkgName_Empty(t *testing.T) {
-	got := extractShortPkgName("")
-	if got != "" {
-		t.Errorf("extractShortPkgName('') = %q, want %q", got, "")
-	}
-}
-
 // ---------------------------------------------------------------------------
-// analyzePackageCoverage tests
+// findModuleRoot tests
 // ---------------------------------------------------------------------------
 
-func TestAnalyzePackageCoverage_ValidPackage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping: loads real packages via analysis pipeline")
+func TestFindModuleRoot_Found(t *testing.T) {
+	// Create a temp directory tree with a go.mod in the root.
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	gazeConfig := config.DefaultConfig()
-	var stderr bytes.Buffer
-	reports, _ := analyzePackageCoverage(
-		"github.com/unbound-force/gaze/internal/quality/testdata/src/welltested",
-		".",
-		gazeConfig,
-		&stderr,
-	)
-	if len(reports) == 0 {
-		t.Error("expected non-nil quality reports for well-tested package")
+	sub := filepath.Join(root, "a", "b", "c")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findModuleRoot(sub)
+	if err != nil {
+		t.Fatalf("findModuleRoot: %v", err)
+	}
+	if got != root {
+		t.Errorf("findModuleRoot = %q, want %q", got, root)
 	}
 }
 
-func TestAnalyzePackageCoverage_InvalidPackage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping: invokes go/packages.Load via analysis.LoadAndAnalyze")
+func TestFindModuleRoot_NotFound(t *testing.T) {
+	// Use a temp directory with no go.mod anywhere up the tree.
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "no", "gomod", "here")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	gazeConfig := config.DefaultConfig()
-	var stderr bytes.Buffer
-	reports, _ := analyzePackageCoverage(
-		"github.com/nonexistent/does/not/exist",
-		".",
-		gazeConfig,
-		&stderr,
-	)
-	if reports != nil {
-		t.Error("expected nil reports for non-existent package")
+
+	_, err := findModuleRoot(sub)
+	if err == nil {
+		t.Fatal("expected error when no go.mod exists")
+	}
+}
+
+func TestFindModuleRoot_AtStartDir(t *testing.T) {
+	// go.mod is in the start directory itself.
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module test\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := findModuleRoot(dir)
+	if err != nil {
+		t.Fatalf("findModuleRoot: %v", err)
+	}
+	if got != dir {
+		t.Errorf("findModuleRoot = %q, want %q", got, dir)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// BuildContractCoverageFunc tests
+// Contract coverage closure behavior tests
 // ---------------------------------------------------------------------------
 
-// TestBuildContractCoverageFunc_InvalidPattern verifies that an
-// unresolvable pattern returns nil without panicking.
-func TestBuildContractCoverageFunc_InvalidPattern(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping: invokes go/packages.Load via resolvePackagePaths")
-	}
-	var buf bytes.Buffer
-	fn, _ := BuildContractCoverageFunc(
-		[]string{"github.com/nonexistent/package/does/not/exist"},
-		t.TempDir(),
-		&buf,
-	)
-	if fn != nil {
-		_, ok := fn("nonexistent", "Foo")
-		if ok {
-			t.Error("expected ok=false for unknown pkg:func key")
-		}
-	}
-}
-
-// TestBuildContractCoverageFunc_WelltestedPackage verifies that the
-// function returns a callable closure for a package that has tests.
-// This exercises the quality pipeline integration path.
-// This is the primary regression guard for SC-002.
-func TestBuildContractCoverageFunc_WelltestedPackage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping: runs quality pipeline (package loading)")
-	}
-
-	pattern := "github.com/unbound-force/gaze/internal/quality/testdata/src/welltested"
-
-	var buf bytes.Buffer
-	fn, _ := BuildContractCoverageFunc([]string{pattern}, ".", &buf)
-
-	if fn == nil {
-		t.Fatal("BuildContractCoverageFunc returned nil; expected non-nil closure for well-tested package")
-	}
-
-	info, ok := fn("welltested", "Add")
-	t.Logf("welltested:Add contract coverage: %.1f%% (found=%v, reason=%q)", info.Percentage, ok, info.Reason)
-	if !ok {
-		t.Fatal("expected ok=true for welltested:Add, got ok=false")
-	}
-	if info.Percentage <= 0 {
-		t.Errorf("expected pct > 0 for welltested:Add (well-tested fixture should have non-zero coverage), got %.1f", info.Percentage)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// no_test_coverage / no_effects_detected reason tests (spec 036)
-// ---------------------------------------------------------------------------
-
-// TestBuildContractCoverageFunc_NoTestCoverage verifies that a
+// TestContractCoverageClosure_NoTestCoverage verifies that a
 // function with detected effects but no test coverage returns
 // ContractCoverageInfo with Reason "no_test_coverage". This tests
 // the effectsSet logic added in spec 036 (FR-006).
-func TestBuildContractCoverageFunc_NoTestCoverage(t *testing.T) {
+func TestContractCoverageClosure_NoTestCoverage(t *testing.T) {
 	// Construct the closure directly using the internal maps to
 	// avoid running the full quality pipeline. The effectsSet
 	// contains a function key, but the coverageMap does not.
@@ -173,11 +110,11 @@ func TestBuildContractCoverageFunc_NoTestCoverage(t *testing.T) {
 	}
 }
 
-// TestBuildContractCoverageFunc_NoEffects verifies that a function
+// TestContractCoverageClosure_NoEffects verifies that a function
 // with zero detected effects and no test coverage returns
 // ContractCoverageInfo with Reason "no_effects_detected" and
 // ok=false (existing behavior preserved).
-func TestBuildContractCoverageFunc_NoEffects(t *testing.T) {
+func TestContractCoverageClosure_NoEffects(t *testing.T) {
 	// Construct the closure directly. Neither coverageMap nor
 	// effectsSet contains the function key.
 	coverageMap := make(map[string]ContractCoverageInfo)

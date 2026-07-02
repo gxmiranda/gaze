@@ -109,6 +109,16 @@ func (p *testLineCoverageProvider) Coverage(patterns []string, rootDir string, c
 	return ParseCoverProfile(coverProfile, rootDir, nil)
 }
 
+// testContractCoverageProvider implements ContractCoverageProvider
+// for tests. It returns a lookup function from the lookupFunc field.
+type testContractCoverageProvider struct {
+	lookupFunc func(pkg, function string) (ContractCoverageInfo, bool)
+}
+
+func (p *testContractCoverageProvider) Build(patterns []string, rootDir string) (func(pkg, function string) (ContractCoverageInfo, bool), []string, error) {
+	return p.lookupFunc, nil, nil
+}
+
 // testProviderOpts returns DefaultOptions with test providers attached.
 func testProviderOpts() Options {
 	opts := DefaultOptions()
@@ -286,7 +296,7 @@ func TestBuildSummary_CRAPload(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	summary := buildSummary(scores, opts)
+	summary := buildSummary(scores, opts, nil)
 
 	if summary.CRAPload != 2 {
 		t.Errorf("expected CRAPload 2, got %d", summary.CRAPload)
@@ -306,7 +316,7 @@ func TestBuildSummary_WorstOffenders(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	summary := buildSummary(scores, opts)
+	summary := buildSummary(scores, opts, nil)
 
 	if len(summary.WorstCRAP) != 5 {
 		t.Errorf("expected 5 worst offenders, got %d",
@@ -358,7 +368,7 @@ func TestBuildSummary_WithGazeCRAP(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	summary := buildSummary(scores, opts)
+	summary := buildSummary(scores, opts, nil)
 
 	// GazeCRAPload: functions with GazeCRAP >= 15 → A (25) and C (35) = 2.
 	if summary.GazeCRAPload == nil {
@@ -418,7 +428,7 @@ func TestBuildSummary_WithGazeCRAP(t *testing.T) {
 
 func TestBuildSummary_Empty(t *testing.T) {
 	opts := DefaultOptions()
-	summary := buildSummary(nil, opts)
+	summary := buildSummary(nil, opts, nil)
 
 	if summary.TotalFunctions != 0 {
 		t.Errorf("expected 0 functions, got %d", summary.TotalFunctions)
@@ -1021,7 +1031,7 @@ func TestGazeCRAP_Wiring(t *testing.T) {
 	}
 
 	// Verify buildSummary handles the populated GazeCRAP fields.
-	summary := buildSummary([]Score{score}, Options{CRAPThreshold: 15, GazeCRAPThreshold: 15})
+	summary := buildSummary([]Score{score}, Options{CRAPThreshold: 15, GazeCRAPThreshold: 15}, nil)
 	if summary.GazeCRAPload == nil {
 		t.Fatal("expected non-nil GazeCRAPload in summary")
 	}
@@ -1143,10 +1153,6 @@ func TestDefaultOptions_ReturnsExpectedDefaults(t *testing.T) {
 	}
 	if !opts.IgnoreGenerated {
 		t.Error("IgnoreGenerated should default to true")
-	}
-	// ContractCoverageFunc is not set by default.
-	if opts.ContractCoverageFunc != nil {
-		t.Error("ContractCoverageFunc should be nil by default")
 	}
 }
 
@@ -1309,10 +1315,10 @@ func TestAnalyze_WithPrebuiltProfile(t *testing.T) {
 	}
 }
 
-// TestAnalyze_ContractCoverageFunc verifies that Analyze populates
-// GazeCRAP, ContractCoverage, and Quadrant when ContractCoverageFunc
+// TestAnalyze_ContractCoverageProvider verifies that Analyze populates
+// GazeCRAP, ContractCoverage, and Quadrant when ContractCoverageProvider
 // is provided.
-func TestAnalyze_ContractCoverageFunc(t *testing.T) {
+func TestAnalyze_ContractCoverageProvider(t *testing.T) {
 	modRoot := moduleRoot(t)
 
 	// Dynamically discover Formula's position.
@@ -1329,11 +1335,13 @@ func TestAnalyze_ContractCoverageFunc(t *testing.T) {
 
 	opts := testProviderOpts()
 	opts.CoverProfile = profileFile
-	opts.ContractCoverageFunc = func(pkg, function string) (ContractCoverageInfo, bool) {
-		if function == "Formula" {
-			return ContractCoverageInfo{Percentage: 80.0}, true
-		}
-		return ContractCoverageInfo{}, false
+	opts.ContractCoverageProvider = &testContractCoverageProvider{
+		lookupFunc: func(pkg, function string) (ContractCoverageInfo, bool) {
+			if function == "Formula" {
+				return ContractCoverageInfo{Percentage: 80.0}, true
+			}
+			return ContractCoverageInfo{}, false
+		},
 	}
 
 	report, err := Analyze([]string{"./internal/crap"}, modRoot, opts)

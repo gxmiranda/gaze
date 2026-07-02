@@ -73,7 +73,7 @@ func NewSideEffectAnalyzer(
 // naming, godoc) stays internal to this adapter.
 func (a *GoSideEffectAnalyzer) Analyze(pkgPath string) ([]taxonomy.AnalysisResult, error) {
 	analysisOpts := analysis.Options{
-		IncludeUnexported: isMainPkg(pkgPath),
+		IncludeUnexported: loader.IsMainPkg(pkgPath),
 	}
 
 	results, err := analysis.LoadAndAnalyze(pkgPath, analysisOpts)
@@ -103,19 +103,5 @@ func (a *GoSideEffectAnalyzer) Analyze(pkgPath string) ([]taxonomy.AnalysisResul
 
 	classified := classify.Classify(results, clOpts)
 	return classified, nil
-}
-
-// isMainPkg checks if a package path resolves to package main.
-// Used to auto-detect main packages and include unexported functions.
-//
-// NOTE: keep in sync with internal/crap/contract.go and
-// internal/aireport/runner_steps.go
-func isMainPkg(pkgPath string) bool {
-	cfg := &packages.Config{Mode: packages.NeedName}
-	pkgs, err := packages.Load(cfg, pkgPath)
-	if err != nil || len(pkgs) == 0 {
-		return false
-	}
-	return pkgs[0].Name == "main"
 }
 

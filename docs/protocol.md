@@ -124,11 +124,13 @@ Handshake method. Must be the first method called. Returns the analyzer's capabi
   "capabilities": {
     "discover": true,
     "test_mapping": true,
-    "classify_signals": false
+    "classify_signals": false,
+    "streaming": false
   },
   "protocol_version": "1.0.0",
   "analyzer_name": "snake-eyes",
-  "language": "python"
+  "language": "python",
+  "language_version": "3.12.0"
 }
 ```
 
@@ -137,9 +139,11 @@ Handshake method. Must be the first method called. Returns the analyzer's capabi
 | `capabilities.discover` | boolean | Supports the `discover` method |
 | `capabilities.test_mapping` | boolean | Supports the `test_mapping` method |
 | `capabilities.classify_signals` | boolean | Supports the `classify_signals` method |
+| `capabilities.streaming` | boolean | Supports the `analyze/stream` method |
 | `protocol_version` | string | Protocol version (semver) |
 | `analyzer_name` | string | Human-readable analyzer name |
 | `language` | string | Primary language (e.g., "python", "rust") |
+| `language_version` | string | Runtime/compiler version (optional) |
 
 ---
 
@@ -223,6 +227,30 @@ Each side effect may include a `classification` object:
 | `confidence` | integer | 0-100 confidence score |
 
 When `classification` is null, Gaze uses default classification based on the effect type's tier.
+
+**Language-neutral side effect type aliases**: External analyzers may use either Go-specific type names (e.g., `GoroutineSpawn`, `ChannelSend`, `CgoCall`) or language-neutral aliases (e.g., `AsyncTaskSpawn`, `AsyncMessageSend`, `FFICall`). The aliases map to the same string values as the Go-specific names: `AsyncTaskSpawn` = `GoroutineSpawn`, `AsyncMessageSend` = `ChannelSend`, `AsyncChannelClose` = `ChannelClose`, `BarrierOp` = `WaitGroupOp`, `PanicRecovery` = `RecoverBehavior`, `FFICall` = `CgoCall`, `ObjectPoolOp` = `SyncPoolOp`.
+
+---
+
+### `analyze/stream` (optional)
+
+Streaming alternative to the batch `analyze` method. When the analyzer declares `capabilities.streaming: true` in the `initialize` response, Gaze calls `analyze/stream` instead of `analyze`.
+
+**Timeout**: 5 minutes
+
+**Request params**: Same as `analyze`.
+
+**Response format**: Instead of a single JSON-RPC response, the analyzer writes one JSON object per line (JSONL) to stdout. Each line represents one `AnalyzedFunction` — the same schema as the `functions` array elements in the batch response.
+
+```jsonl
+{"name":"add","package":"math_utils","file":"math_utils/ops.py","line":1,"side_effects":[]}
+{"name":"multiply","package":"math_utils","file":"math_utils/ops.py","line":10,"side_effects":[{"type":"ReturnValue","description":"returns result","location":"ops.py:12:5","target":"result"}]}
+{"name":"divide","package":"math_utils","file":"math_utils/ops.py","line":20,"side_effects":[{"type":"ReturnValue","description":"returns result","location":"ops.py:25:5","target":"result"},{"type":"ErrorReturn","description":"raises ZeroDivisionError","location":"ops.py:22:9","target":"ZeroDivisionError"}]}
+```
+
+**Error handling**: If a line contains invalid JSON, Gaze stops processing (fail-fast) and reports the error with the line number and content.
+
+**When to use streaming**: Streaming is beneficial for large codebases (10K+ functions) where a single batch response would be multi-megabyte. For small codebases, the batch `analyze` method is simpler and sufficient.
 
 ---
 

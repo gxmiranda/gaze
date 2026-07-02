@@ -92,7 +92,7 @@ func buildFullPayload(t *testing.T) *ReportPayload {
 				"assertion_count":                3,
 				"assertion_detection_confidence": 85,
 				"metadata": map[string]interface{}{
-					"gaze_version": "dev", "go_version": "go1.24",
+					"gaze_version": "dev", "language": "go", "language_version": "go1.24",
 					"duration_ms": 100, "warnings": []interface{}{},
 				},
 			},
@@ -124,7 +124,7 @@ func buildFullPayload(t *testing.T) *ReportPayload {
 					"assertion_count":                3,
 					"assertion_detection_confidence": 85,
 					"metadata": map[string]interface{}{
-						"gaze_version": "dev", "go_version": "go1.24",
+						"gaze_version": "dev", "language": "go", "language_version": "go1.24",
 						"duration_ms": 100, "warnings": []interface{}{},
 					},
 				},
@@ -161,7 +161,7 @@ func buildFullPayload(t *testing.T) *ReportPayload {
 					},
 				},
 				"metadata": map[string]interface{}{
-					"gaze_version": "dev", "go_version": "go1.24",
+					"gaze_version": "dev", "language": "go", "language_version": "go1.24",
 					"duration_ms": 50, "warnings": []interface{}{},
 				},
 			},
@@ -859,7 +859,7 @@ func TestCompactForAI_SizeBudget(t *testing.T) {
 			"assertion_count":                2,
 			"assertion_detection_confidence": 90,
 			"metadata": map[string]interface{}{
-				"gaze_version": "dev", "go_version": "go1.24",
+				"gaze_version": "dev", "language": "go", "language_version": "go1.24",
 				"duration_ms": 10, "warnings": []interface{}{},
 			},
 		}
@@ -917,7 +917,7 @@ func TestCompactForAI_SizeBudget(t *testing.T) {
 				},
 			},
 			"metadata": map[string]interface{}{
-				"gaze_version": "dev", "go_version": "go1.24",
+				"gaze_version": "dev", "language": "go", "language_version": "go1.24",
 				"duration_ms": 10, "warnings": []interface{}{},
 			},
 		}

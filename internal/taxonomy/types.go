@@ -70,6 +70,33 @@ const (
 	ClosureCaptureMutation SideEffectType = "ClosureCaptureMutation"
 )
 
+// Language-neutral side effect type aliases. These map to the same
+// string values as their Go-specific counterparts, providing
+// familiar names for external analyzer authors targeting other
+// languages. The Go-specific names remain valid — these are additive.
+const (
+	// AsyncTaskSpawn is a language-neutral alias for GoroutineSpawn.
+	AsyncTaskSpawn SideEffectType = GoroutineSpawn
+
+	// AsyncMessageSend is a language-neutral alias for ChannelSend.
+	AsyncMessageSend SideEffectType = ChannelSend
+
+	// AsyncChannelClose is a language-neutral alias for ChannelClose.
+	AsyncChannelClose SideEffectType = ChannelClose
+
+	// BarrierOp is a language-neutral alias for WaitGroupOp.
+	BarrierOp SideEffectType = WaitGroupOp
+
+	// PanicRecovery is a language-neutral alias for RecoverBehavior.
+	PanicRecovery SideEffectType = RecoverBehavior
+
+	// FFICall is a language-neutral alias for CgoCall.
+	FFICall SideEffectType = CgoCall
+
+	// ObjectPoolOp is a language-neutral alias for SyncPoolOp.
+	ObjectPoolOp SideEffectType = SyncPoolOp
+)
+
 // Tier represents the priority tier for a side effect type.
 type Tier string
 
@@ -193,11 +220,12 @@ func (ft FunctionTarget) QualifiedName() string {
 
 // Metadata holds analysis run metadata.
 type Metadata struct {
-	GazeVersion string        `json:"gaze_version"`
-	GoVersion   string        `json:"go_version"`
-	Timestamp   time.Time     `json:"-"`
-	Duration    time.Duration `json:"-"`
-	Warnings    []string      `json:"warnings"`
+	GazeVersion     string        `json:"gaze_version"`
+	Language        string        `json:"language"`
+	LanguageVersion string        `json:"language_version"`
+	Timestamp       time.Time     `json:"-"`
+	Duration        time.Duration `json:"-"`
+	Warnings        []string      `json:"warnings"`
 }
 
 // MarshalJSON customizes JSON encoding to use duration_ms and

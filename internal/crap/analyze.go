@@ -43,29 +43,13 @@ type Options struct {
 	LineCoverageProvider LineCoverageProvider
 
 	// ContractCoverageProvider builds a contract coverage lookup
-	// function for GazeCRAP scoring. When set, it takes precedence
-	// over ContractCoverageFunc. When nil, falls back to
-	// ContractCoverageFunc/SSADegradedPackages (deprecated path).
+	// function for GazeCRAP scoring. When nil, GazeCRAP fields
+	// remain unavailable.
 	ContractCoverageProvider ContractCoverageProvider
-
-	// Deprecated: Use ContractCoverageProvider instead.
-	// ContractCoverageFunc is an optional function that returns
-	// contract coverage info for a given function. When provided,
-	// GazeCRAP scores, contract coverage, quadrant classifications,
-	// and coverage reason diagnostics are computed.
-	// If nil, GazeCRAP fields remain unavailable (FR-015).
-	ContractCoverageFunc func(pkg, function string) (ContractCoverageInfo, bool)
-
-	// Deprecated: Use ContractCoverageProvider instead.
-	// SSADegradedPackages lists package paths where SSA construction
-	// failed during quality analysis. Propagated to Summary so the
-	// CRAP JSON output indicates which packages have partial data.
-	SSADegradedPackages []string
 }
 
 // ContractCoverageInfo carries contract coverage data from the
-// quality pipeline to the CRAP scoring pipeline. It replaces the
-// former bare float64 return from ContractCoverageFunc to include
+// quality pipeline to the CRAP scoring pipeline. It includes
 // diagnostic information about why coverage is what it is.
 type ContractCoverageInfo struct {
 	// Percentage is the contract coverage percentage (0-100).
@@ -134,28 +118,24 @@ func Analyze(patterns []string, moduleDir string, opts Options) (*Report, error)
 	coverMap := buildCoverMap(funcCoverages)
 
 	// Step 4: Resolve contract coverage via provider (if set).
-	// ContractCoverageProvider takes precedence over the deprecated
-	// ContractCoverageFunc (D7).
+	var ccFunc func(pkg, function string) (ContractCoverageInfo, bool)
+	var ssaDegradedPkgs []string
 	if opts.ContractCoverageProvider != nil {
-		ccFunc, degradedPkgs, ccErr := opts.ContractCoverageProvider.Build(patterns, moduleDir)
+		fn, degradedPkgs, ccErr := opts.ContractCoverageProvider.Build(patterns, moduleDir)
 		if ccErr != nil {
 			// Graceful degradation: log warning, continue without
-			// GazeCRAP (consistent with nil ContractCoverageFunc).
+			// GazeCRAP.
 			if opts.Stderr != nil {
 				_, _ = fmt.Fprintf(opts.Stderr, "warning: contract coverage provider failed: %v\n", ccErr)
 			}
 		} else {
-			if ccFunc != nil {
-				opts.ContractCoverageFunc = ccFunc
-			}
-			if len(degradedPkgs) > 0 {
-				opts.SSADegradedPackages = append(opts.SSADegradedPackages, degradedPkgs...)
-			}
+			ccFunc = fn
+			ssaDegradedPkgs = degradedPkgs
 		}
 	}
 
 	// Step 5: Join complexity with coverage and compute CRAP.
-	scores := computeScores(complexityStats, coverMap, opts)
+	scores := computeScores(complexityStats, coverMap, opts, ccFunc)
 
 	// Step 5b: Relativize file paths for portable JSON output.
 	// computeScores uses absolute paths for coverage lookups, but the
@@ -167,7 +147,7 @@ func Analyze(patterns []string, moduleDir string, opts Options) (*Report, error)
 	}
 
 	// Step 6: Build summary.
-	summary := buildSummary(scores, opts)
+	summary := buildSummary(scores, opts, ssaDegradedPkgs)
 
 	return &Report{
 		Scores:  scores,
@@ -245,14 +225,14 @@ func lookupCoverage(fc FunctionComplexity, maps coverMaps) float64 {
 // computeScores joins cyclomatic complexity data with coverage data
 // and computes CRAP scores for each non-skipped function. Test files
 // and generated files (when opts.IgnoreGenerated is true) are
-// excluded. If opts.ContractCoverageFunc is set, GazeCRAP scores,
-// contract coverage percentages, and quadrant classifications are
-// computed for each function where the callback returns data.
+// excluded. If ccFunc is non-nil, GazeCRAP scores, contract coverage
+// percentages, and quadrant classifications are computed for each
+// function where the callback returns data.
 //
 // Accepts []FunctionComplexity (language-neutral) instead of
 // []gocyclo.Stat — the conversion happens inside the
 // ComplexityProvider (see design decision D4).
-func computeScores(stats []FunctionComplexity, coverMap coverMaps, opts Options) []Score {
+func computeScores(stats []FunctionComplexity, coverMap coverMaps, opts Options, ccFunc func(pkg, function string) (ContractCoverageInfo, bool)) []Score {
 	generatedCache := make(map[string]bool)
 	var scores []Score
 
@@ -289,8 +269,8 @@ func computeScores(stats []FunctionComplexity, coverMap coverMaps, opts Options)
 		}
 
 		// Compute GazeCRAP if contract coverage is available.
-		if opts.ContractCoverageFunc != nil {
-			ccInfo, ok := opts.ContractCoverageFunc(stat.Package, stat.Function)
+		if ccFunc != nil {
+			ccInfo, ok := ccFunc(stat.Package, stat.Function)
 			if ok {
 				gazeCRAP := Formula(stat.Complexity, ccInfo.Percentage)
 				quadrant := ClassifyQuadrant(
@@ -381,7 +361,7 @@ func isGeneratedFile(path string) bool {
 }
 
 // buildSummary computes aggregate statistics from the scores.
-func buildSummary(scores []Score, opts Options) Summary {
+func buildSummary(scores []Score, opts Options, ssaDegradedPkgs []string) Summary {
 	if len(scores) == 0 {
 		return Summary{
 			CRAPThreshold: opts.CRAPThreshold,
@@ -484,8 +464,8 @@ func buildSummary(scores []Score, opts Options) Summary {
 		summary.RecommendedActions = actions
 	}
 
-	if len(opts.SSADegradedPackages) > 0 {
-		summary.SSADegradedPackages = opts.SSADegradedPackages
+	if len(ssaDegradedPkgs) > 0 {
+		summary.SSADegradedPackages = ssaDegradedPkgs
 	}
 
 	if hasGazeCRAP {

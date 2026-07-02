@@ -51,8 +51,9 @@ func sampleResults() []taxonomy.AnalysisResult {
 				},
 			},
 			Metadata: taxonomy.Metadata{
-				GazeVersion: "test",
-				GoVersion:   "go1.24.0",
+				GazeVersion:     "test",
+				Language:        "go",
+				LanguageVersion: "go1.24.0",
 			},
 		},
 	}
@@ -119,7 +120,7 @@ func TestWriteJSON_ContainsAllFields(t *testing.T) {
 		`"version"`, `"results"`, `"target"`, `"side_effects"`,
 		`"id"`, `"type"`, `"tier"`, `"location"`,
 		`"description"`, `"package"`, `"function"`,
-		`"signature"`, `"gaze_version"`, `"go_version"`,
+		`"signature"`, `"gaze_version"`, `"language"`, `"language_version"`,
 	}
 
 	for _, field := range requiredFields {
@@ -498,9 +499,10 @@ func TestQualitySchema_ValidatesSampleOutput(t *testing.T) {
 				},
 				"assertion_detection_confidence": 95,
 				"metadata": map[string]interface{}{
-					"gaze_version": "0.1.0",
-					"go_version":   "go1.24",
-					"duration_ms":  100,
+					"gaze_version":    "0.1.0",
+					"language":        "go",
+					"language_version": "go1.24",
+					"duration_ms":     100,
 				},
 			},
 		},
@@ -567,9 +569,10 @@ func TestQualitySchema_ValidatesDegradedOutput(t *testing.T) {
 				},
 				"assertion_detection_confidence": 80,
 				"metadata": map[string]interface{}{
-					"gaze_version": "0.1.0",
-					"go_version":   "go1.25",
-					"duration_ms":  5,
+					"gaze_version":    "0.1.0",
+					"language":        "go",
+					"language_version": "go1.25",
+					"duration_ms":     5,
 				},
 			},
 		},
@@ -638,9 +641,10 @@ func TestQualitySchema_ValidatesWithoutSSADegradedField(t *testing.T) {
 				},
 				"assertion_detection_confidence": 100,
 				"metadata": map[string]interface{}{
-					"gaze_version": "0.1.0",
-					"go_version":   "go1.24",
-					"duration_ms":  50,
+					"gaze_version":    "0.1.0",
+					"language":        "go",
+					"language_version": "go1.24",
+					"duration_ms":     50,
 				},
 			},
 		},

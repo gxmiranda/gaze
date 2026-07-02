@@ -475,8 +475,8 @@ func TestAnalysis_MetadataPopulated(t *testing.T) {
 	if result.Metadata.GazeVersion == "" {
 		t.Error("expected non-empty GazeVersion")
 	}
-	if result.Metadata.GoVersion == "" {
-		t.Error("expected non-empty GoVersion")
+	if result.Metadata.LanguageVersion == "" {
+		t.Error("expected non-empty LanguageVersion")
 	}
 }
 

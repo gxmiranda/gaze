@@ -95,8 +95,18 @@ func (a *ExternalSideEffectAnalyzer) AllResults() ([]taxonomy.AnalysisResult, er
 }
 
 // loadAll fetches all analysis results from the external analyzer.
-// Must be called with a.mu held.
+// When the analyzer declares streaming capability, it uses the
+// analyze/stream method with JSONL output; otherwise it uses the
+// batch analyze method. Must be called with a.mu held.
 func (a *ExternalSideEffectAnalyzer) loadAll() error {
+	if a.caps.Streaming {
+		return a.loadStreaming()
+	}
+	return a.loadBatch()
+}
+
+// loadBatch fetches results using the batch analyze method.
+func (a *ExternalSideEffectAnalyzer) loadBatch() error {
 	ctx, cancel := context.WithTimeout(context.Background(), protocol.AnalysisTimeout)
 	defer cancel()
 
@@ -118,6 +128,54 @@ func (a *ExternalSideEffectAnalyzer) loadAll() error {
 
 	a.cached = convertAnalysisResults(result.Functions, a.stderr)
 	return nil
+}
+
+// loadStreaming fetches results using the analyze/stream method.
+// The analyzer writes one AnalyzedFunction per line (JSONL).
+// Malformed lines cause a fail-fast error with line number context.
+func (a *ExternalSideEffectAnalyzer) loadStreaming() error {
+	ctx, cancel := context.WithTimeout(context.Background(), protocol.AnalysisTimeout)
+	defer cancel()
+
+	scanner, err := a.client.CallStream(ctx, protocol.MethodAnalyzeStream, protocol.AnalyzeParams{
+		RootPath: a.rootDir,
+		Patterns: a.patterns,
+	})
+	if err != nil {
+		return fmt.Errorf("analyze/stream protocol call: %w", err)
+	}
+
+	var funcs []protocol.AnalyzedFunction
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue // skip empty lines
+		}
+
+		var fn protocol.AnalyzedFunction
+		if uerr := json.Unmarshal(line, &fn); uerr != nil {
+			return fmt.Errorf("malformed JSONL on line %d: %w (content: %s)",
+				lineNum, uerr, truncateBytes(line, 200))
+		}
+		funcs = append(funcs, fn)
+	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		return fmt.Errorf("reading analyze/stream response: %w", scanErr)
+	}
+
+	a.cached = convertAnalysisResults(funcs, a.stderr)
+	return nil
+}
+
+// truncateBytes returns the first n bytes as a string, appending
+// "..." if truncated.
+func truncateBytes(b []byte, n int) string {
+	if len(b) <= n {
+		return string(b)
+	}
+	return string(b[:n]) + "..."
 }
 
 // convertAnalysisResults maps protocol AnalyzedFunction entries to

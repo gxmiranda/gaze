@@ -38,7 +38,7 @@ func TestComputeScores_BasicCRAP(t *testing.T) {
 	})
 	opts := DefaultOptions()
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, nil)
 
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
@@ -72,7 +72,7 @@ func TestComputeScores_SkipsTestFiles(t *testing.T) {
 	})
 	opts := DefaultOptions()
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, nil)
 
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score (test file skipped), got %d", len(scores))
@@ -104,7 +104,7 @@ func TestComputeScores_SkipsGeneratedFiles(t *testing.T) {
 
 	// IgnoreGenerated = true (default): generated file skipped.
 	opts := DefaultOptions()
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, nil)
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score (generated skipped), got %d", len(scores))
 	}
@@ -114,7 +114,7 @@ func TestComputeScores_SkipsGeneratedFiles(t *testing.T) {
 
 	// IgnoreGenerated = false: generated file included.
 	opts.IgnoreGenerated = false
-	scores = computeScores(stats, cm, opts)
+	scores = computeScores(stats, cm, opts, nil)
 	if len(scores) != 2 {
 		t.Fatalf("expected 2 scores (generated included), got %d", len(scores))
 	}
@@ -128,7 +128,7 @@ func TestComputeScores_ZeroCoverage(t *testing.T) {
 	cm := makeCoverMap(map[coverKey]float64{})
 	opts := DefaultOptions()
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, nil)
 
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
@@ -151,14 +151,14 @@ func TestComputeScores_GazeCRAP(t *testing.T) {
 		{file: "/src/foo.go", line: 10}: 90.0,
 	})
 	opts := DefaultOptions()
-	opts.ContractCoverageFunc = func(pkg, fn string) (ContractCoverageInfo, bool) {
+	ccFunc := func(pkg, fn string) (ContractCoverageInfo, bool) {
 		if pkg == "pkg" && fn == "Foo" {
 			return ContractCoverageInfo{Percentage: 75.0}, true
 		}
 		return ContractCoverageInfo{}, false
 	}
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, ccFunc)
 
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
@@ -190,9 +190,9 @@ func TestComputeScores_NoGazeCRAP(t *testing.T) {
 		{file: "/src/foo.go", line: 10}: 80.0,
 	})
 	opts := DefaultOptions()
-	// ContractCoverageFunc is nil (default).
+	// ccFunc is nil — no contract coverage.
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, nil)
 
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
@@ -217,12 +217,12 @@ func TestComputeScores_GazeCRAPNotFound(t *testing.T) {
 		{file: "/src/foo.go", line: 10}: 80.0,
 	})
 	opts := DefaultOptions()
-	// ContractCoverageFunc is set but returns false for this function.
-	opts.ContractCoverageFunc = func(pkg, fn string) (ContractCoverageInfo, bool) {
+	// ccFunc is set but returns false for this function.
+	ccFunc := func(pkg, fn string) (ContractCoverageInfo, bool) {
 		return ContractCoverageInfo{}, false
 	}
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, ccFunc)
 
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
@@ -320,7 +320,7 @@ func TestComputeScores_FixStrategyAssigned(t *testing.T) {
 	})
 	opts := DefaultOptions()
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, nil)
 	if len(scores) != 2 {
 		t.Fatalf("expected 2 scores, got %d", len(scores))
 	}
@@ -349,7 +349,7 @@ func TestBuildSummary_FixStrategyCounts(t *testing.T) {
 		{Complexity: 3, LineCoverage: 90, CRAP: 3.1}, // below threshold, no strategy
 	}
 	opts := DefaultOptions()
-	summary := buildSummary(scores, opts)
+	summary := buildSummary(scores, opts, nil)
 
 	if summary.FixStrategyCounts == nil {
 		t.Fatal("expected non-nil FixStrategyCounts")
@@ -373,7 +373,7 @@ func TestComputeScores_CoverageReason_AllAmbiguous(t *testing.T) {
 		{file: "/src/foo.go", line: 10}: 80.0,
 	})
 	opts := DefaultOptions()
-	opts.ContractCoverageFunc = func(pkg, fn string) (ContractCoverageInfo, bool) {
+	ccFunc := func(pkg, fn string) (ContractCoverageInfo, bool) {
 		return ContractCoverageInfo{
 			Percentage:    0,
 			Reason:        "all_effects_ambiguous",
@@ -382,7 +382,7 @@ func TestComputeScores_CoverageReason_AllAmbiguous(t *testing.T) {
 		}, true
 	}
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, ccFunc)
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
 	}
@@ -410,11 +410,11 @@ func TestComputeScores_CoverageReason_Normal(t *testing.T) {
 		{file: "/src/foo.go", line: 10}: 80.0,
 	})
 	opts := DefaultOptions()
-	opts.ContractCoverageFunc = func(pkg, fn string) (ContractCoverageInfo, bool) {
+	ccFunc := func(pkg, fn string) (ContractCoverageInfo, bool) {
 		return ContractCoverageInfo{Percentage: 85.0}, true
 	}
 
-	scores := computeScores(stats, cm, opts)
+	scores := computeScores(stats, cm, opts, ccFunc)
 	if len(scores) != 1 {
 		t.Fatalf("expected 1 score, got %d", len(scores))
 	}
@@ -443,7 +443,7 @@ func TestBuildSummary_RecommendedActions(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	summary := buildSummary(scores, opts)
+	summary := buildSummary(scores, opts, nil)
 
 	// (a) Only CRAPload functions (those with FixStrategy) appear.
 	if len(summary.RecommendedActions) != 5 {
@@ -487,7 +487,7 @@ func TestBuildSummary_RecommendedActions_Truncated(t *testing.T) {
 	}
 
 	opts := DefaultOptions()
-	summary := buildSummary(scores, opts)
+	summary := buildSummary(scores, opts, nil)
 
 	// (c) Truncated to 20.
 	if len(summary.RecommendedActions) != 20 {

@@ -32,6 +32,10 @@ type Providers struct {
 
 	// Language is the primary language the analyzer targets.
 	Language string
+
+	// LanguageVersion is the runtime/compiler version for the
+	// target language.
+	LanguageVersion string
 }
 
 // Session manages the full protocol lifecycle with an external
@@ -124,6 +128,7 @@ func (s *Session) Initialize() (*Providers, error) {
 		Capabilities:     initResult.Capabilities,
 		AnalyzerName:     initResult.AnalyzerName,
 		Language:         initResult.Language,
+		LanguageVersion:  initResult.LanguageVersion,
 	}, nil
 }
 

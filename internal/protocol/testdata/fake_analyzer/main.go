@@ -51,6 +51,7 @@ func main() {
 	stdio := flag.Bool("stdio", false, "run in stdio mode")
 	crashAfter := flag.String("crash-after", "", "crash after responding to this method")
 	hang := flag.Bool("hang", false, "hang after initialize")
+	hangStream := flag.Bool("hang-stream", false, "enable streaming mode and write JSONL for analyze/stream")
 	malformedJSON := flag.Bool("malformed-json", false, "return malformed JSON for first non-initialize request")
 	errorResponse := flag.Bool("error-response", false, "return JSON-RPC error for first non-initialize request")
 	flag.Parse()
@@ -102,7 +103,16 @@ func main() {
 			continue
 		}
 
-		resp := handleRequest(req)
+		// Handle analyze/stream: write JSONL lines instead of a single response.
+		if req.Method == "analyze/stream" {
+			writeStreamResponse(req.ID)
+			if *crashAfter == "analyze/stream" {
+				os.Exit(0)
+			}
+			continue
+		}
+
+		resp := handleRequest(req, *hangStream)
 		writeResponse(resp)
 
 		if req.Method == "initialize" {
@@ -121,7 +131,7 @@ func main() {
 	}
 }
 
-func handleRequest(req request) response {
+func handleRequest(req request, streaming bool) response {
 	switch req.Method {
 	case "initialize":
 		return response{
@@ -132,10 +142,12 @@ func handleRequest(req request) response {
 					"discover":         true,
 					"test_mapping":     true,
 					"classify_signals": false,
+					"streaming":        streaming,
 				},
-				"protocol_version": "1.0.0",
-				"analyzer_name":    "fake-analyzer",
-				"language":         "python",
+				"protocol_version":  "1.0.0",
+				"analyzer_name":     "fake-analyzer",
+				"language":          "python",
+				"language_version":  "3.12.0",
 			},
 		}
 
@@ -293,6 +305,77 @@ func handleRequest(req request) response {
 				Message: fmt.Sprintf("method not found: %s", req.Method),
 			},
 		}
+	}
+}
+
+// writeStreamResponse writes JSONL lines for analyze/stream.
+// Each line is one AnalyzedFunction as a standalone JSON object.
+func writeStreamResponse(id int64) {
+	_ = id // not used in JSONL mode — each line is independent
+	funcs := []map[string]any{
+		{
+			"name":    "divide",
+			"package": "math_utils",
+			"file":    "math_utils/ops.py",
+			"line":    20,
+			"side_effects": []map[string]any{
+				{
+					"type":        "ReturnValue",
+					"description": "returns division result",
+					"location":    "math_utils/ops.py:25:5",
+					"target":      "result",
+					"classification": map[string]any{
+						"label":      "contractual",
+						"confidence": 90,
+					},
+				},
+				{
+					"type":        "ErrorReturn",
+					"description": "raises ZeroDivisionError",
+					"location":    "math_utils/ops.py:22:9",
+					"target":      "ZeroDivisionError",
+					"classification": map[string]any{
+						"label":      "contractual",
+						"confidence": 85,
+					},
+				},
+			},
+		},
+		{
+			"name":    "multiply",
+			"package": "math_utils",
+			"file":    "math_utils/ops.py",
+			"line":    10,
+			"side_effects": []map[string]any{
+				{
+					"type":        "ReturnValue",
+					"description": "returns multiplication result",
+					"location":    "math_utils/ops.py:12:5",
+					"target":      "result",
+					"classification": map[string]any{
+						"label":      "contractual",
+						"confidence": 95,
+					},
+				},
+			},
+		},
+		{
+			"name":         "add",
+			"package":      "math_utils",
+			"file":         "math_utils/ops.py",
+			"line":         1,
+			"side_effects": []map[string]any{},
+		},
+	}
+
+	for _, fn := range funcs {
+		data, err := json.Marshal(fn)
+		if err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "fake_analyzer: failed to marshal stream line: %v\n", err)
+			continue
+		}
+		fmt.Fprintln(os.Stdout, string(data))
+		os.Stdout.Sync()
 	}
 }
 
