@@ -70,6 +70,20 @@ const (
 	ClosureCaptureMutation SideEffectType = "ClosureCaptureMutation"
 )
 
+// Universal types -- language-neutral.
+const (
+	GeneratorYield          SideEffectType = "GeneratorYield"
+	AsyncGeneratorYield     SideEffectType = "AsyncGeneratorYield"
+	MetaprogrammingMutation SideEffectType = "MetaprogrammingMutation"
+	DescriptorEffect        SideEffectType = "DescriptorEffect"
+	ResourceManagement      SideEffectType = "ResourceManagement"
+	ImportSideEffect        SideEffectType = "ImportSideEffect"
+	MonkeyPatch             SideEffectType = "MonkeyPatch"
+	ContainerMutation       SideEffectType = "ContainerMutation"
+	StreamOutput            SideEffectType = "StreamOutput"
+	ErrorSignal             SideEffectType = "ErrorSignal"
+)
+
 // Language-neutral side effect type aliases. These map to the same
 // string values as their Go-specific counterparts, providing
 // familiar names for external analyzer authors targeting other
@@ -95,6 +109,18 @@ const (
 
 	// ObjectPoolOp is a language-neutral alias for SyncPoolOp.
 	ObjectPoolOp SideEffectType = SyncPoolOp
+
+	// DeferredMutation is a language-neutral alias for DeferredReturnMutation.
+	DeferredMutation SideEffectType = DeferredReturnMutation
+
+	// ArgumentMutation is a language-neutral alias for PointerArgMutation.
+	ArgumentMutation SideEffectType = PointerArgMutation
+
+	// ProcessTermination is a language-neutral alias for Panic.
+	ProcessTermination SideEffectType = Panic
+
+	// SentinelErrorDecl is a language-neutral alias for SentinelError.
+	SentinelErrorDecl SideEffectType = SentinelError
 )
 
 // Tier represents the priority tier for a side effect type.
@@ -188,6 +214,13 @@ type SideEffect struct {
 	// Classification is the contractual classification of this
 	// side effect. Nil when classification has not been performed.
 	Classification *Classification `json:"classification,omitempty"`
+
+	// Detail is optional language-specific metadata provided by
+	// external analyzers. It is opaque to gaze's scoring,
+	// classification, and CRAP computation logic — passed through
+	// to JSON output and AI report pipelines without interpretation.
+	// Nil or empty for Go analysis results.
+	Detail map[string]any `json:"detail,omitempty"`
 }
 
 // FunctionTarget identifies the function under analysis.
@@ -442,4 +475,76 @@ func GenerateID(pkg, function, effectType, location string) string {
 	input := fmt.Sprintf("%s:%s:%s:%s", pkg, function, effectType, location)
 	hash := sha256.Sum256([]byte(input))
 	return fmt.Sprintf("se-%x", hash[:4])
+}
+
+// ValidTypes is the set of all 48 canonical (non-alias) side effect
+// type constants. Aliases are excluded because they resolve to the
+// same string value as their target constant.
+var ValidTypes = map[SideEffectType]bool{
+	// P0 — Must Detect.
+	ReturnValue:        true,
+	ErrorReturn:        true,
+	SentinelError:      true,
+	ReceiverMutation:   true,
+	PointerArgMutation: true,
+
+	// P1 — High Value.
+	SliceMutation:          true,
+	MapMutation:            true,
+	GlobalMutation:         true,
+	WriterOutput:           true,
+	HTTPResponseWrite:      true,
+	ChannelSend:            true,
+	ChannelClose:           true,
+	DeferredReturnMutation: true,
+
+	// P2 — Important.
+	FileSystemWrite:     true,
+	FileSystemDelete:    true,
+	FileSystemMeta:      true,
+	DatabaseWrite:       true,
+	DatabaseTransaction: true,
+	GoroutineSpawn:      true,
+	Panic:               true,
+	CallbackInvocation:  true,
+	LogWrite:            true,
+	ContextCancellation: true,
+
+	// P3 — Nice to Have.
+	StdoutWrite:     true,
+	StderrWrite:     true,
+	EnvVarMutation:  true,
+	MutexOp:         true,
+	WaitGroupOp:     true,
+	AtomicOp:        true,
+	TimeDependency:  true,
+	ProcessExit:     true,
+	RecoverBehavior: true,
+
+	// P4 — Exotic.
+	ReflectionMutation:     true,
+	UnsafeMutation:         true,
+	CgoCall:                true,
+	FinalizerRegistration:  true,
+	SyncPoolOp:             true,
+	ClosureCaptureMutation: true,
+
+	// Universal — language-neutral.
+	GeneratorYield:          true,
+	AsyncGeneratorYield:     true,
+	MetaprogrammingMutation: true,
+	DescriptorEffect:        true,
+	ResourceManagement:      true,
+	ImportSideEffect:        true,
+	MonkeyPatch:             true,
+	ContainerMutation:       true,
+	StreamOutput:            true,
+	ErrorSignal:             true,
+}
+
+// IsKnownType reports whether t is a canonical side effect type
+// defined in the taxonomy. Alias constants are not listed separately
+// because they share the same string value as their target.
+func IsKnownType(t SideEffectType) bool {
+	return ValidTypes[t]
 }

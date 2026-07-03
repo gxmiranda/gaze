@@ -20,9 +20,9 @@ These capabilities form the core of Gaze. Without them, the tool cannot produce 
 
 | Tier | Detection Requirement |
 |------|----------------------|
-| P0 (5 types) | MUST detect with zero false negatives, zero false positives |
-| P1 (8 types) | MUST detect; false positives acceptable if documented |
-| P2 (10 types) | SHOULD detect; partial detection acceptable |
+| P0 (6 types) | MUST detect with zero false negatives, zero false positives |
+| P1 (11 types) | MUST detect; false positives acceptable if documented |
+| P2 (16 types) | SHOULD detect; partial detection acceptable |
 | P3 (9 types) | MAY detect; mark as "Defined — detection not yet implemented" if skipped |
 | P4 (6 types) | MAY detect; these are exotic and language-specific |
 

@@ -18,13 +18,13 @@ A port MUST assign each side effect type to exactly one of five priority tiers (
 
 | Tier | Effect Types | Count |
 |------|-------------|-------|
-| P0 — Must Detect | ReturnValue, ErrorReturn, SentinelError, ReceiverMutation, PointerArgMutation | 5 |
-| P1 — High Value | SliceMutation, MapMutation, GlobalMutation, WriterOutput, HTTPResponseWrite, ChannelSend, ChannelClose, DeferredReturnMutation | 8 |
-| P2 — Important | FileSystemWrite, FileSystemDelete, FileSystemMeta, DatabaseWrite, DatabaseTransaction, GoroutineSpawn, Panic, CallbackInvocation, LogWrite, ContextCancellation | 10 |
+| P0 — Must Detect | ReturnValue, ErrorReturn, SentinelError, ReceiverMutation, PointerArgMutation, ErrorSignal | 6 |
+| P1 — High Value | SliceMutation, MapMutation, GlobalMutation, WriterOutput, HTTPResponseWrite, ChannelSend, ChannelClose, DeferredReturnMutation, GeneratorYield, ContainerMutation, StreamOutput | 11 |
+| P2 — Important | FileSystemWrite, FileSystemDelete, FileSystemMeta, DatabaseWrite, DatabaseTransaction, GoroutineSpawn, Panic, CallbackInvocation, LogWrite, ContextCancellation, AsyncGeneratorYield, MetaprogrammingMutation, DescriptorEffect, ResourceManagement, ImportSideEffect, MonkeyPatch | 16 |
 | P3 — Nice to Have | StdoutWrite, StderrWrite, EnvVarMutation, MutexOp, WaitGroupOp, AtomicOp, TimeDependency, ProcessExit, RecoverBehavior | 9 |
-| P4 — Exotic | ReflectionMutation, UnsafeMutation, CgoCall, FinalizerRegistration, SyncPoolOp, ClosureCaptureMutation | 5 |
+| P4 — Exotic | ReflectionMutation, UnsafeMutation, CgoCall, FinalizerRegistration, SyncPoolOp, ClosureCaptureMutation | 6 |
 
-**Total: 37 effect types.**
+**Total: 48 effect types.**
 
 ### EC-002: P0 Zero Tolerance
 
@@ -45,7 +45,7 @@ Each detected side effect MUST carry these fields:
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | string | Stable identifier (see EC-003) |
-| `type` | enum | One of the 37 `SideEffectType` values |
+| `type` | enum | One of the 48 `SideEffectType` values |
 | `tier` | enum | P0–P4, derived from type (see EC-001) |
 | `location` | string | Source position (file:line:col) |
 | `description` | string | Human-readable explanation |
@@ -54,7 +54,7 @@ Each detected side effect MUST carry these fields:
 
 ### EC-005: Language Adaptation
 
-The 37 effect types are defined in terms of programming language concepts. A port MUST map each type to its language equivalent:
+The 48 effect types are defined in terms of programming language concepts. A port MUST map each type to its language equivalent:
 
 - **ReturnValue** → any value returned from a function/method
 - **ErrorReturn** → language-specific error mechanism (exceptions in Python, `Result::Err` in Rust, thrown errors in TypeScript)
@@ -72,6 +72,16 @@ The 37 effect types are defined in terms of programming language concepts. A por
 - **Panic** → unrecoverable error / panic / abort
 - **CallbackInvocation** → invocation of a function parameter (callback, closure, handler)
 - **CgoCall** → call to foreign function interface (FFI, ctypes, napi)
+- **ErrorSignal** → language-neutral error signaling mechanism (`raise`, `throw`, `return err`)
+- **GeneratorYield** → yielding a value from a generator/iterator (`yield` in Python, `yield return` in C#)
+- **ContainerMutation** → mutation of a generic container parameter (set, deque, priority queue)
+- **StreamOutput** → write to a generic output stream
+- **AsyncGeneratorYield** → yielding from an async generator (`async def gen(): yield x`)
+- **MetaprogrammingMutation** → runtime mutation of program structure (`setattr`, metaclasses)
+- **DescriptorEffect** → side effect via descriptor protocol (`__set__`, `__delete__`)
+- **ResourceManagement** → acquisition or release of an external resource (context managers, RAII)
+- **ImportSideEffect** → module import that triggers observable side effects
+- **MonkeyPatch** → runtime replacement of functions/methods/attributes
 
 Types without a direct equivalent in the target language SHOULD be omitted from detection but MUST remain in the taxonomy for compatibility. For example, `CgoCall` maps to FFI in any language, but `SyncPoolOp` may not have an equivalent.
 

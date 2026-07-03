@@ -85,7 +85,12 @@ const Schema = `{
             "TimeDependency", "ProcessExit", "RecoverBehavior",
             "ReflectionMutation", "UnsafeMutation", "CgoCall",
             "FinalizerRegistration", "SyncPoolOp",
-            "ClosureCaptureMutation"
+            "ClosureCaptureMutation",
+            "GeneratorYield", "AsyncGeneratorYield",
+            "MetaprogrammingMutation", "DescriptorEffect",
+            "ResourceManagement", "ImportSideEffect",
+            "MonkeyPatch", "ContainerMutation",
+            "StreamOutput", "ErrorSignal"
           ]
         },
         "tier": {
@@ -108,6 +113,10 @@ const Schema = `{
         "classification": {
           "$ref": "#/$defs/Classification",
           "description": "Contractual classification (only present when --classify is used)"
+        },
+        "detail": {
+          "type": "object",
+          "description": "Language-specific metadata from external analyzers (opaque to scoring)"
         }
       }
     },
@@ -389,7 +398,11 @@ const QualitySchema = `{
         "tier": { "type": "string" },
         "location": { "type": "string" },
         "description": { "type": "string" },
-        "target": { "type": "string" }
+        "target": { "type": "string" },
+        "detail": {
+          "type": "object",
+          "description": "Language-specific metadata from external analyzers (opaque to scoring)"
+        }
       }
     },
     "PackageSummary": {

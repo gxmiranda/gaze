@@ -58,4 +58,16 @@ var tierMap = map[SideEffectType]Tier{
 	FinalizerRegistration:  TierP4,
 	SyncPoolOp:             TierP4,
 	ClosureCaptureMutation: TierP4,
+
+	// Universal types
+	ErrorSignal:             TierP0,
+	GeneratorYield:          TierP1,
+	ContainerMutation:       TierP1,
+	StreamOutput:            TierP1,
+	AsyncGeneratorYield:     TierP2,
+	MetaprogrammingMutation: TierP2,
+	DescriptorEffect:        TierP2,
+	ResourceManagement:      TierP2,
+	ImportSideEffect:        TierP2,
+	MonkeyPatch:             TierP2,
 }

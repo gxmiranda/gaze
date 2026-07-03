@@ -144,7 +144,7 @@ func handleRequest(req request, streaming bool) response {
 					"classify_signals": false,
 					"streaming":        streaming,
 				},
-				"protocol_version":  "1.0.0",
+				"protocol_version":  "1.1.0",
 				"analyzer_name":     "fake-analyzer",
 				"language":          "python",
 				"language_version":  "3.12.0",
