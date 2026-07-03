@@ -26,7 +26,7 @@ This is Phase 1a of issue #166 (CRAPload fragility reduction).
 Add injectable dependency structs to 4 orchestration functions, following the
 existing `pipelineStepFuncs` pattern in `internal/aireport/runner.go`:
 
-- `analyzePackageCoverage` in `internal/crap/contract.go`
+- `analyzePackageCoverage` in `internal/provider/goprovider/contract.go`
 - `runQualityForPackage` in `internal/aireport/runner_steps.go`
 - `runQualityStep` in `internal/aireport/runner_steps.go`
 - `runClassifyStep` in `internal/aireport/runner_steps.go`
@@ -62,8 +62,8 @@ Add unit tests for all 6 target functions:
 
 ## Impact
 
-- **Files modified**: `internal/crap/contract.go`, `internal/aireport/runner_steps.go`
-- **Test files modified**: `internal/crap/contract_test.go`, `internal/aireport/runner_steps_test.go`
+- **Files modified**: `internal/provider/goprovider/contract.go`, `internal/aireport/runner_steps.go`
+- **Test files modified**: `internal/provider/goprovider/contract_internal_test.go`, `internal/aireport/runner_steps_test.go`
 - **No API surface changes**: All functions are unexported; no callers outside their package
 - **No behavioral changes**: Production code paths remain identical; DI structs default to the real implementations
 - **Expected CRAPload reduction**: ~6 functions drop below the CRAP threshold (15), reducing CRAPload from 38 to ~32

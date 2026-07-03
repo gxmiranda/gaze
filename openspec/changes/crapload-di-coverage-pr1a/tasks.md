@@ -12,7 +12,7 @@
 
 ## 1. Add contractCoverageDeps to internal/crap/
 
-- [x] 1.1 Define `contractCoverageDeps` struct in `internal/crap/contract.go`
+- [x] 1.1 Define `contractCoverageDeps` struct in `internal/provider/goprovider/contract.go`
   with injectable fields: `loadAndAnalyze`, `classifyResults`, `loadTestPkg`,
   `assess`. Absorb the existing `aiMapperFn` variadic parameter into the struct
   as a field (Go does not allow two variadic parameters). Add a nil-means-default
@@ -22,7 +22,7 @@
   through the deps struct (no behavioral change).
 
 - [x] 1.2 Add unit tests for `analyzePackageCoverage` in
-  `internal/crap/contract_test.go` using injected deps. Test cases:
+  `internal/provider/goprovider/contract_internal_test.go` using injected deps. Test cases:
   - Success path (all deps return valid data)
   - `loadAndAnalyze` returns error → returns `(nil, "")`
   - `loadAndAnalyze` returns empty results → returns `(nil, "")`
@@ -33,7 +33,7 @@
   Tests MUST NOT be guarded by `testing.Short()`.
 
 - [x] 1.3 Add unit tests for `loadTestPackage` in
-  `internal/crap/contract_test.go`. Test cases:
+  `internal/provider/goprovider/contract_internal_test.go`. Test cases:
   - Package with test files (`internal/quality/testdata/src/welltested`) → success
   - Package without test files (`internal/analysis/testdata/src/returns`) → error
   - Non-existent package → error

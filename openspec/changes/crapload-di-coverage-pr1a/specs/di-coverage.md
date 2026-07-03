@@ -2,7 +2,7 @@
 
 ### Requirement: contractCoverageDeps injection for analyzePackageCoverage
 
-`analyzePackageCoverage` in `internal/crap/contract.go` MUST accept an optional
+`analyzePackageCoverage` in `internal/provider/goprovider/contract.go` MUST accept an optional
 variadic `contractCoverageDeps` parameter. When no deps argument is supplied, the
 function MUST use the real implementations (`analysis.LoadAndAnalyze`,
 `classifyResults`, `loadTestPackage`, `quality.Assess`). When a deps argument is
@@ -109,7 +109,7 @@ The struct MUST be unexported (package-internal).
 
 ### Requirement: loadTestPackage unit tests
 
-`loadTestPackage` in `internal/crap/contract.go` MUST have unit tests that
+`loadTestPackage` in `internal/provider/goprovider/contract.go` MUST have unit tests that
 exercise both the success and error paths. Tests MUST NOT be guarded by
 `testing.Short()`.
 

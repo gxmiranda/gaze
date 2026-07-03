@@ -60,7 +60,7 @@ Rather than 4 separate deps structs, use 2:
   `runClassifyResults`, `loadTestPkg`, `qualityAssess`, `resolveModulePkgs`,
   and `loadConfig`.
 
-- **`contractCoverageDeps`** in `internal/crap/contract.go` — used by
+- **`contractCoverageDeps`** in `internal/provider/goprovider/contract.go` — used by
   `analyzePackageCoverage`. Contains injectable fields for `loadAndAnalyze`,
   `classifyResults`, `loadTestPkg`, and `qualityAssess`.
 
