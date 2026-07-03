@@ -762,19 +762,16 @@ func stubAnalyze(_ []string, _ string, _ crap.Options) (*crap.Report, error) {
 	return stubReport(), nil
 }
 
-
-
 func TestRunCrap_TextOutput(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := runCrap(crapParams{
-		patterns:     []string{"./..."},
-		format:       "text",
-		opts:         crap.DefaultOptions(),
-		moduleDir:    ".",
-		stdout:       &stdout,
-		stderr:       &stderr,
-		analyzeFunc:  stubAnalyze,
-
+		patterns:    []string{"./..."},
+		format:      "text",
+		opts:        crap.DefaultOptions(),
+		moduleDir:   ".",
+		stdout:      &stdout,
+		stderr:      &stderr,
+		analyzeFunc: stubAnalyze,
 	})
 	if err != nil {
 		t.Fatalf("runCrap returned error: %v", err)
@@ -790,14 +787,13 @@ func TestRunCrap_TextOutput(t *testing.T) {
 func TestRunCrap_JSONOutput(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := runCrap(crapParams{
-		patterns:     []string{"./..."},
-		format:       "json",
-		opts:         crap.DefaultOptions(),
-		moduleDir:    ".",
-		stdout:       &stdout,
-		stderr:       &stderr,
-		analyzeFunc:  stubAnalyze,
-
+		patterns:    []string{"./..."},
+		format:      "json",
+		opts:        crap.DefaultOptions(),
+		moduleDir:   ".",
+		stdout:      &stdout,
+		stderr:      &stderr,
+		analyzeFunc: stubAnalyze,
 	})
 	if err != nil {
 		t.Fatalf("runCrap returned error: %v", err)
@@ -812,14 +808,13 @@ func TestRunCrap_JSONOutput(t *testing.T) {
 func TestRunCrap_NoCoverageWarning(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := runCrap(crapParams{
-		patterns:     []string{"./..."},
-		format:       "text",
-		opts:         crap.DefaultOptions(),
-		moduleDir:    ".",
-		stdout:       &stdout,
-		stderr:       &stderr,
-		analyzeFunc:  stubAnalyze,
-
+		patterns:    []string{"./..."},
+		format:      "text",
+		opts:        crap.DefaultOptions(),
+		moduleDir:   ".",
+		stdout:      &stdout,
+		stderr:      &stderr,
+		analyzeFunc: stubAnalyze,
 	})
 	if err != nil {
 		t.Fatalf("runCrap returned error: %v", err)
@@ -832,15 +827,14 @@ func TestRunCrap_NoCoverageWarning(t *testing.T) {
 func TestRunCrap_ThresholdPass(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	err := runCrap(crapParams{
-		patterns:     []string{"./..."},
-		format:       "text",
-		opts:         crap.DefaultOptions(),
-		maxCrapload:  10, // report has CRAPload=0, well under 10
-		moduleDir:    ".",
-		stdout:       &stdout,
-		stderr:       &stderr,
-		analyzeFunc:  stubAnalyze,
-
+		patterns:    []string{"./..."},
+		format:      "text",
+		opts:        crap.DefaultOptions(),
+		maxCrapload: 10, // report has CRAPload=0, well under 10
+		moduleDir:   ".",
+		stdout:      &stdout,
+		stderr:      &stderr,
+		analyzeFunc: stubAnalyze,
 	})
 	if err != nil {
 		t.Fatalf("expected no error when under threshold, got: %v", err)
@@ -857,15 +851,14 @@ func TestRunCrap_ThresholdBreach(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	err := runCrap(crapParams{
-		patterns:     []string{"./..."},
-		format:       "text",
-		opts:         crap.DefaultOptions(),
-		maxCrapload:  2, // CRAPload=5 exceeds max=2
-		moduleDir:    ".",
-		stdout:       &stdout,
-		stderr:       &stderr,
-		analyzeFunc:  overThreshold,
-
+		patterns:    []string{"./..."},
+		format:      "text",
+		opts:        crap.DefaultOptions(),
+		maxCrapload: 2, // CRAPload=5 exceeds max=2
+		moduleDir:   ".",
+		stdout:      &stdout,
+		stderr:      &stderr,
+		analyzeFunc: overThreshold,
 	})
 	if err == nil {
 		t.Fatal("expected error when CRAPload exceeds threshold")
@@ -884,14 +877,13 @@ func TestRunCrap_EmptyPatterns(t *testing.T) {
 
 	var stdout, stderr bytes.Buffer
 	err := runCrap(crapParams{
-		patterns:     []string{},
-		format:       "text",
-		opts:         crap.DefaultOptions(),
-		moduleDir:    ".",
-		stdout:       &stdout,
-		stderr:       &stderr,
-		analyzeFunc:  capturingAnalyze,
-
+		patterns:    []string{},
+		format:      "text",
+		opts:        crap.DefaultOptions(),
+		moduleDir:   ".",
+		stdout:      &stdout,
+		stderr:      &stderr,
+		analyzeFunc: capturingAnalyze,
 	})
 	if err != nil {
 		t.Fatalf("runCrap with empty patterns returned error: %v", err)
@@ -932,7 +924,6 @@ func TestRunCrap_ZeroResults_ThresholdSet_ReturnsError(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubEmptyAnalyze,
-
 	})
 	if err == nil {
 		t.Fatal("expected error when zero results and threshold set")
@@ -959,7 +950,6 @@ func TestRunCrap_ZeroResults_NoThreshold_ExitZero(t *testing.T) {
 		stdout:       &stdout,
 		stderr:       &stderr,
 		analyzeFunc:  stubEmptyAnalyze,
-
 	})
 	if err != nil {
 		t.Fatalf("expected nil error when zero results and no threshold, got: %v", err)

@@ -27,12 +27,12 @@ import (
 // Design decision D4: This adapter uses ExternalSideEffectAnalyzer
 // as a composition dependency to access the full analysis results.
 type ExternalContractCoverageProvider struct {
-	client         *protocol.Client
-	caps           protocol.Capabilities
-	sideEffects    *ExternalSideEffectAnalyzer
-	rootDir        string
-	patterns       []string
-	stderr         io.Writer
+	client      *protocol.Client
+	caps        protocol.Capabilities
+	sideEffects *ExternalSideEffectAnalyzer
+	rootDir     string
+	patterns    []string
+	stderr      io.Writer
 }
 
 // NewExternalContractCoverageProvider creates a contract coverage

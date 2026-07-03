@@ -497,9 +497,9 @@ func TestFunctionTarget_QualifiedName(t *testing.T) {
 // aliases are equal to their Go-specific counterparts.
 func TestSideEffectType_NeutralAliases(t *testing.T) {
 	tests := []struct {
-		neutral  SideEffectType
-		goName   SideEffectType
-		label    string
+		neutral SideEffectType
+		goName  SideEffectType
+		label   string
 	}{
 		{AsyncTaskSpawn, GoroutineSpawn, "AsyncTaskSpawn == GoroutineSpawn"},
 		{AsyncMessageSend, ChannelSend, "AsyncMessageSend == ChannelSend"},
