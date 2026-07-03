@@ -21,6 +21,59 @@ import (
 	"github.com/unbound-force/gaze/internal/taxonomy"
 )
 
+// qualityPipelineDeps holds injectable function dependencies for
+// runQualityStep, runQualityForPackage, and runClassifyStep. When a
+// field is nil, the real implementation is used. This enables unit
+// testing of the quality/classify orchestration logic without running
+// real package loading or SSA analysis.
+//
+// Design decision: follows the pipelineStepFuncs pattern
+// (runner.go:243) — variadic parameter with nil-means-default
+// resolution. Chosen over interface-based DI per SOLID Interface
+// Segregation: these are internal, co-located functions, not a
+// public contract.
+type qualityPipelineDeps struct {
+	resolvePackagePaths func([]string, string) ([]string, error)
+	loadAndAnalyze      func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)
+	classifyResults     func([]taxonomy.AnalysisResult, string, *config.GazeConfig, []*packages.Package) ([]taxonomy.AnalysisResult, error)
+	loadTestPkg         func(string) (*packages.Package, error)
+	assess              func([]taxonomy.AnalysisResult, *packages.Package, quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error)
+	resolveModulePkgs   func(string) []*packages.Package
+	loadConfig          func(string) *config.GazeConfig
+}
+
+// resolveQualityDeps resolves nil fields to their production defaults.
+// Accepts a variadic slice for ergonomic call-site usage: callers pass
+// zero or one qualityPipelineDeps value.
+func resolveQualityDeps(deps []qualityPipelineDeps) qualityPipelineDeps {
+	var d qualityPipelineDeps
+	if len(deps) > 0 {
+		d = deps[0]
+	}
+	if d.resolvePackagePaths == nil {
+		d.resolvePackagePaths = loader.ResolvePackagePaths
+	}
+	if d.loadAndAnalyze == nil {
+		d.loadAndAnalyze = analysis.LoadAndAnalyze
+	}
+	if d.classifyResults == nil {
+		d.classifyResults = runClassifyResults
+	}
+	if d.loadTestPkg == nil {
+		d.loadTestPkg = loadTestPackageForQuality
+	}
+	if d.assess == nil {
+		d.assess = quality.Assess
+	}
+	if d.resolveModulePkgs == nil {
+		d.resolveModulePkgs = resolveModulePackages
+	}
+	if d.loadConfig == nil {
+		d.loadConfig = loadGazeConfigBestEffort
+	}
+	return d
+}
+
 // crapStepResult holds the outputs of runCRAPStep.
 type crapStepResult struct {
 	JSON                json.RawMessage
@@ -86,8 +139,10 @@ type qualityStepResult struct {
 // runQualityStep runs the quality pipeline across all matched packages and
 // returns the aggregated JSON output alongside the typed AvgContractCoverage
 // value for threshold evaluation.
-func runQualityStep(patterns []string, moduleDir string, stderr io.Writer) (*qualityStepResult, error) {
-	pkgPaths, err := loader.ResolvePackagePaths(patterns, moduleDir)
+func runQualityStep(patterns []string, moduleDir string, stderr io.Writer, deps ...qualityPipelineDeps) (*qualityStepResult, error) {
+	d := resolveQualityDeps(deps)
+
+	pkgPaths, err := d.resolvePackagePaths(patterns, moduleDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolving packages for quality: %w", err)
 	}
@@ -95,15 +150,15 @@ func runQualityStep(patterns []string, moduleDir string, stderr io.Writer) (*qua
 		return nil, fmt.Errorf("no packages matched patterns %v", patterns)
 	}
 
-	gazeConfig := loadGazeConfigBestEffort(moduleDir)
+	gazeConfig := d.loadConfig(moduleDir)
 
 	// Hoist LoadModule out of the per-package loop — O(1) instead of O(n).
-	modPkgs := resolveModulePackages(moduleDir)
+	modPkgs := d.resolveModulePkgs(moduleDir)
 
 	var allReports []taxonomy.QualityReport
 	var degradedPkgs []string
 	for _, pkgPath := range pkgPaths {
-		reports, degradedPkg := runQualityForPackage(pkgPath, gazeConfig, modPkgs, stderr)
+		reports, degradedPkg := runQualityForPackage(pkgPath, gazeConfig, modPkgs, stderr, deps...)
 		if degradedPkg != "" {
 			degradedPkgs = append(degradedPkgs, degradedPkg)
 		}
@@ -144,30 +199,33 @@ func runQualityForPackage(
 	gazeConfig *config.GazeConfig,
 	modPkgs []*packages.Package,
 	stderr io.Writer,
+	deps ...qualityPipelineDeps,
 ) ([]taxonomy.QualityReport, string) {
+	d := resolveQualityDeps(deps)
+
 	includeUnexported := loader.IsMainPkg(pkgPath)
 	if includeUnexported {
 		_, _ = fmt.Fprintf(stderr, "package main detected for %s, including unexported functions\n", pkgPath)
 	}
 	analysisOpts := analysis.Options{IncludeUnexported: includeUnexported}
-	results, err := analysis.LoadAndAnalyze(pkgPath, analysisOpts)
+	results, err := d.loadAndAnalyze(pkgPath, analysisOpts)
 	if err != nil || len(results) == 0 {
 		return nil, ""
 	}
 
 	cfg := gazeConfig
-	classified, err := runClassifyResults(results, pkgPath, cfg, modPkgs)
+	classified, err := d.classifyResults(results, pkgPath, cfg, modPkgs)
 	if err != nil || len(classified) == 0 {
 		return nil, ""
 	}
 
-	testPkg, err := loadTestPackageForQuality(pkgPath)
+	testPkg, err := d.loadTestPkg(pkgPath)
 	if err != nil {
 		return nil, ""
 	}
 
 	qualOpts := quality.Options{Stderr: stderr}
-	reports, summary, err := quality.Assess(classified, testPkg, qualOpts)
+	reports, summary, err := d.assess(classified, testPkg, qualOpts)
 	if err != nil {
 		return nil, ""
 	}
@@ -187,9 +245,11 @@ type classifyStepResult struct {
 
 // runClassifyStep runs classification on all matched packages and returns the JSON output
 // alongside typed classification label counts.
-func runClassifyStep(patterns []string, moduleDir string) (*classifyStepResult, error) {
+func runClassifyStep(patterns []string, moduleDir string, deps ...qualityPipelineDeps) (*classifyStepResult, error) {
+	d := resolveQualityDeps(deps)
+
 	// Use the first resolved package path for analysis + classify.
-	pkgPaths, err := loader.ResolvePackagePaths(patterns, moduleDir)
+	pkgPaths, err := d.resolvePackagePaths(patterns, moduleDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolving packages for classification: %w", err)
 	}
@@ -198,18 +258,18 @@ func runClassifyStep(patterns []string, moduleDir string) (*classifyStepResult, 
 	}
 
 	// Hoist LoadModule out of the per-package loop — O(1) instead of O(n).
-	modPkgs := resolveModulePackages(moduleDir)
+	modPkgs := d.resolveModulePkgs(moduleDir)
 
-	gazeConfig := loadGazeConfigBestEffort(moduleDir)
+	gazeConfig := d.loadConfig(moduleDir)
 	var allResults []taxonomy.AnalysisResult
 
 	for _, pkgPath := range pkgPaths {
 		analysisOpts := analysis.Options{IncludeUnexported: loader.IsMainPkg(pkgPath)}
-		results, err := analysis.LoadAndAnalyze(pkgPath, analysisOpts)
+		results, err := d.loadAndAnalyze(pkgPath, analysisOpts)
 		if err != nil || len(results) == 0 {
 			continue
 		}
-		classified, err := runClassifyResults(results, pkgPath, gazeConfig, modPkgs)
+		classified, err := d.classifyResults(results, pkgPath, gazeConfig, modPkgs)
 		if err != nil {
 			continue
 		}

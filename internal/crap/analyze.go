@@ -155,8 +155,6 @@ func Analyze(patterns []string, moduleDir string, opts Options) (*Report, error)
 	}, nil
 }
 
-
-
 // ResolvePatterns converts Go package patterns (./...) to filesystem
 // paths that tools like gocyclo can walk. Exported for use by Go
 // provider adapters in internal/provider/goprovider/ (see D9).

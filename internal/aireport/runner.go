@@ -242,8 +242,8 @@ func errString(err error) *string {
 // real analysis.
 type pipelineStepFuncs struct {
 	crapStep     func([]string, string, string, io.Writer, crap.ContractCoverageProvider) (*crapStepResult, error)
-	qualityStep  func([]string, string, io.Writer) (*qualityStepResult, error)
-	classifyStep func([]string, string) (*classifyStepResult, error)
+	qualityStep  func([]string, string, io.Writer, ...qualityPipelineDeps) (*qualityStepResult, error)
+	classifyStep func([]string, string, ...qualityPipelineDeps) (*classifyStepResult, error)
 	docscanStep  func(string) (json.RawMessage, error)
 }
 

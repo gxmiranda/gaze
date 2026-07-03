@@ -494,5 +494,3 @@ func TestBuildSummary_RecommendedActions_Truncated(t *testing.T) {
 		t.Errorf("expected 20 recommended actions (truncated), got %d", len(summary.RecommendedActions))
 	}
 }
-
-

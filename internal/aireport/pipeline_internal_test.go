@@ -22,13 +22,13 @@ func fakeSteps() pipelineStepFuncs {
 				TotalFunctions: 20,
 			}, nil
 		},
-		qualityStep: func(_ []string, _ string, _ io.Writer) (*qualityStepResult, error) {
+		qualityStep: func(_ []string, _ string, _ io.Writer, _ ...qualityPipelineDeps) (*qualityStepResult, error) {
 			return &qualityStepResult{
 				JSON:                json.RawMessage(`{"quality":"ok"}`),
 				AvgContractCoverage: 85,
 			}, nil
 		},
-		classifyStep: func(_ []string, _ string) (*classifyStepResult, error) {
+		classifyStep: func(_ []string, _ string, _ ...qualityPipelineDeps) (*classifyStepResult, error) {
 			return &classifyStepResult{
 				JSON:        json.RawMessage(`{"classify":"ok"}`),
 				Contractual: 10,
@@ -169,7 +169,7 @@ func TestRunProductionPipeline_CRAPStepFails(t *testing.T) {
 func TestRunProductionPipeline_QualityStepFails(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
-	steps.qualityStep = func(_ []string, _ string, _ io.Writer) (*qualityStepResult, error) {
+	steps.qualityStep = func(_ []string, _ string, _ io.Writer, _ ...qualityPipelineDeps) (*qualityStepResult, error) {
 		return nil, fmt.Errorf("quality analysis failed")
 	}
 
@@ -192,7 +192,7 @@ func TestRunProductionPipeline_QualityStepFails(t *testing.T) {
 func TestRunProductionPipeline_ClassifyStepFails(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
-	steps.classifyStep = func(_ []string, _ string) (*classifyStepResult, error) {
+	steps.classifyStep = func(_ []string, _ string, _ ...qualityPipelineDeps) (*classifyStepResult, error) {
 		return nil, fmt.Errorf("classify failed")
 	}
 
@@ -247,7 +247,7 @@ func TestRunProductionPipeline_MultipleStepsFail(t *testing.T) {
 	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
 		return nil, fmt.Errorf("crap failed")
 	}
-	steps.qualityStep = func(_ []string, _ string, _ io.Writer) (*qualityStepResult, error) {
+	steps.qualityStep = func(_ []string, _ string, _ io.Writer, _ ...qualityPipelineDeps) (*qualityStepResult, error) {
 		return nil, fmt.Errorf("quality failed")
 	}
 
