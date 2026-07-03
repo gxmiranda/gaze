@@ -67,8 +67,8 @@ func TestFullSession(t *testing.T) {
 	if initResult.Language != "python" {
 		t.Errorf("language = %q, want %q", initResult.Language, "python")
 	}
-	if initResult.ProtocolVersion != "1.0.0" {
-		t.Errorf("protocol_version = %q, want %q", initResult.ProtocolVersion, "1.0.0")
+	if initResult.ProtocolVersion != "1.1.0" {
+		t.Errorf("protocol_version = %q, want %q", initResult.ProtocolVersion, "1.1.0")
 	}
 	if !initResult.Capabilities.Discover {
 		t.Error("capabilities.discover = false, want true")

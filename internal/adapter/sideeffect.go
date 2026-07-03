@@ -190,7 +190,7 @@ func convertAnalysisResults(funcs []protocol.AnalyzedFunction, stderr io.Writer)
 			tier := taxonomy.TierOf(effectType)
 
 			// Warn on unknown side effect types (they default to P4).
-			if tier == taxonomy.TierP4 && !isKnownP4(effectType) && stderr != nil {
+			if !taxonomy.IsKnownType(effectType) && stderr != nil {
 				_, _ = fmt.Fprintf(stderr, "warning: unknown side effect type %q from external analyzer (defaulting to P4)\n", se.Type)
 			}
 
@@ -201,6 +201,7 @@ func convertAnalysisResults(funcs []protocol.AnalyzedFunction, stderr io.Writer)
 				Location:    se.Location,
 				Description: se.Description,
 				Target:      se.Target,
+				Detail:      se.Detail,
 			}
 
 			if se.Classification != nil {
@@ -225,17 +226,3 @@ func convertAnalysisResults(funcs []protocol.AnalyzedFunction, stderr io.Writer)
 	return results
 }
 
-// isKnownP4 checks whether a side effect type is a known P4 type
-// (as opposed to an unknown type that defaults to P4).
-func isKnownP4(t taxonomy.SideEffectType) bool {
-	switch t {
-	case taxonomy.ReflectionMutation,
-		taxonomy.UnsafeMutation,
-		taxonomy.CgoCall,
-		taxonomy.FinalizerRegistration,
-		taxonomy.SyncPoolOp,
-		taxonomy.ClosureCaptureMutation:
-		return true
-	}
-	return false
-}

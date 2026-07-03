@@ -8,7 +8,7 @@ For explanations and rationale, see [contracts.md](contracts.md). For capability
 
 ## Effect Types
 
-37 types across 5 priority tiers.
+48 types across 5 priority tiers.
 
 **Status key**: Implemented = detected by the reference Go implementation. Defined = specified in the taxonomy but detection not yet implemented.
 
@@ -19,6 +19,7 @@ For explanations and rationale, see [contracts.md](contracts.md). For capability
 | SentinelError | P0 | Return | Implemented |
 | ReceiverMutation | P0 | Mutation | Implemented |
 | PointerArgMutation | P0 | Mutation | Implemented |
+| ErrorSignal | P0 | Return | Defined |
 | SliceMutation | P1 | Mutation | Implemented |
 | MapMutation | P1 | Mutation | Implemented |
 | GlobalMutation | P1 | Mutation | Implemented |
@@ -27,6 +28,9 @@ For explanations and rationale, see [contracts.md](contracts.md). For capability
 | ChannelSend | P1 | Concurrency | Implemented |
 | ChannelClose | P1 | Concurrency | Implemented |
 | DeferredReturnMutation | P1 | Mutation | Implemented |
+| GeneratorYield | P1 | Return | Defined |
+| ContainerMutation | P1 | Mutation | Defined |
+| StreamOutput | P1 | I/O | Defined |
 | FileSystemWrite | P2 | I/O | Implemented |
 | FileSystemDelete | P2 | I/O | Implemented |
 | FileSystemMeta | P2 | I/O | Implemented |
@@ -37,6 +41,12 @@ For explanations and rationale, see [contracts.md](contracts.md). For capability
 | CallbackInvocation | P2 | Control Flow | Implemented |
 | LogWrite | P2 | I/O | Implemented |
 | ContextCancellation | P2 | Concurrency | Implemented |
+| AsyncGeneratorYield | P2 | Return | Defined |
+| MetaprogrammingMutation | P2 | Mutation | Defined |
+| DescriptorEffect | P2 | Mutation | Defined |
+| ResourceManagement | P2 | Resource | Defined |
+| ImportSideEffect | P2 | Control Flow | Defined |
+| MonkeyPatch | P2 | Mutation | Defined |
 | StdoutWrite | P3 | I/O | Defined |
 | StderrWrite | P3 | I/O | Defined |
 | EnvVarMutation | P3 | Mutation | Defined |
@@ -57,9 +67,9 @@ For explanations and rationale, see [contracts.md](contracts.md). For capability
 
 | Tier | Label | Count | Detection Requirement |
 |------|-------|-------|-----------------------|
-| P0 | Must Detect | 5 | Zero false negatives, zero false positives |
-| P1 | High Value | 8 | Must detect; false positives acceptable if documented |
-| P2 | Important | 10 | Should detect; partial detection acceptable |
+| P0 | Must Detect | 6 | Zero false negatives, zero false positives |
+| P1 | High Value | 11 | Must detect; false positives acceptable if documented |
+| P2 | Important | 16 | Should detect; partial detection acceptable |
 | P3 | Nice to Have | 9 | May detect |
 | P4 | Exotic | 6 | May detect |
 

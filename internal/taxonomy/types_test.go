@@ -248,6 +248,218 @@ func searchString(s, substr string) bool {
 	return false
 }
 
+func TestValidTypes_Completeness(t *testing.T) {
+	// Bidirectional completeness: ValidTypes and tierMap must have
+	// the same keys. This catches additions to one map without the
+	// other — a common source of silent tier-lookup bugs.
+	if len(ValidTypes) != len(tierMap) {
+		t.Fatalf("len(ValidTypes) = %d, len(tierMap) = %d; must be equal",
+			len(ValidTypes), len(tierMap))
+	}
+
+	for typ := range ValidTypes {
+		if _, ok := tierMap[typ]; !ok {
+			t.Errorf("ValidTypes contains %q but tierMap does not", typ)
+		}
+	}
+	for typ := range tierMap {
+		if !ValidTypes[typ] {
+			t.Errorf("tierMap contains %q but ValidTypes does not", typ)
+		}
+	}
+}
+
+func TestIsKnownType_Known(t *testing.T) {
+	// All 48 canonical types must return true.
+	allCanonical := []SideEffectType{
+		// P0
+		ReturnValue, ErrorReturn, SentinelError,
+		ReceiverMutation, PointerArgMutation,
+		// P1
+		SliceMutation, MapMutation, GlobalMutation,
+		WriterOutput, HTTPResponseWrite, ChannelSend,
+		ChannelClose, DeferredReturnMutation,
+		// P2
+		FileSystemWrite, FileSystemDelete, FileSystemMeta,
+		DatabaseWrite, DatabaseTransaction, GoroutineSpawn,
+		Panic, CallbackInvocation, LogWrite, ContextCancellation,
+		// P3
+		StdoutWrite, StderrWrite, EnvVarMutation,
+		MutexOp, WaitGroupOp, AtomicOp, TimeDependency,
+		ProcessExit, RecoverBehavior,
+		// P4
+		ReflectionMutation, UnsafeMutation, CgoCall,
+		FinalizerRegistration, SyncPoolOp, ClosureCaptureMutation,
+		// Universal
+		GeneratorYield, AsyncGeneratorYield,
+		MetaprogrammingMutation, DescriptorEffect,
+		ResourceManagement, ImportSideEffect, MonkeyPatch,
+		ContainerMutation, StreamOutput, ErrorSignal,
+	}
+
+	if len(allCanonical) != 48 {
+		t.Fatalf("expected 48 canonical types in test list, got %d",
+			len(allCanonical))
+	}
+
+	for _, typ := range allCanonical {
+		t.Run(string(typ), func(t *testing.T) {
+			if !IsKnownType(typ) {
+				t.Errorf("IsKnownType(%q) = false, want true", typ)
+			}
+		})
+	}
+}
+
+func TestIsKnownType_Unknown(t *testing.T) {
+	if IsKnownType(SideEffectType("FooBarEffect")) {
+		t.Errorf("IsKnownType(FooBarEffect) = true, want false")
+	}
+}
+
+func TestAliases_ResolveToCanonical(t *testing.T) {
+	tests := []struct {
+		alias     SideEffectType
+		canonical SideEffectType
+	}{
+		{AsyncTaskSpawn, GoroutineSpawn},
+		{AsyncMessageSend, ChannelSend},
+		{AsyncChannelClose, ChannelClose},
+		{BarrierOp, WaitGroupOp},
+		{PanicRecovery, RecoverBehavior},
+		{FFICall, CgoCall},
+		{ObjectPoolOp, SyncPoolOp},
+		{DeferredMutation, DeferredReturnMutation},
+		{ArgumentMutation, PointerArgMutation},
+		{ProcessTermination, Panic},
+		{SentinelErrorDecl, SentinelError},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.alias), func(t *testing.T) {
+			if tt.alias != tt.canonical {
+				t.Errorf("alias %q != canonical %q", tt.alias, tt.canonical)
+			}
+		})
+	}
+}
+
+func TestUniversalTypes_TierAssignments(t *testing.T) {
+	tests := []struct {
+		typ  SideEffectType
+		tier Tier
+	}{
+		{ErrorSignal, TierP0},
+		{GeneratorYield, TierP1},
+		{ContainerMutation, TierP1},
+		{StreamOutput, TierP1},
+		{AsyncGeneratorYield, TierP2},
+		{MetaprogrammingMutation, TierP2},
+		{DescriptorEffect, TierP2},
+		{ResourceManagement, TierP2},
+		{ImportSideEffect, TierP2},
+		{MonkeyPatch, TierP2},
+	}
+
+	for _, tt := range tests {
+		t.Run(string(tt.typ), func(t *testing.T) {
+			if got := TierOf(tt.typ); got != tt.tier {
+				t.Errorf("TierOf(%s) = %s, want %s", tt.typ, got, tt.tier)
+			}
+		})
+	}
+}
+
+func TestErrorSignal_TierBoost(t *testing.T) {
+	// ErrorSignal is a P0 type and should receive the P0 tier
+	// boost in classify.ComputeScore (+25, starting at 75).
+	// We verify the tier assignment here; the boost is applied
+	// by classify.tierBoost which is tested in that package.
+	// A circular import prevents importing classify from taxonomy.
+	if got := TierOf(ErrorSignal); got != TierP0 {
+		t.Errorf("TierOf(ErrorSignal) = %s, want P0 (required for tier boost)", got)
+	}
+}
+
+func TestSideEffect_DetailMarshal(t *testing.T) {
+	t.Run("round-trip", func(t *testing.T) {
+		se := SideEffect{
+			ID:       "se-deadbeef",
+			Type:     GeneratorYield,
+			Tier:     TierP1,
+			Location: "gen.py:42:1",
+			Description: "yields value",
+			Target:      "int",
+			Detail: map[string]any{
+				"language_type": "RaiseException",
+				"confidence":    0.95,
+			},
+		}
+
+		data, err := json.Marshal(se)
+		if err != nil {
+			t.Fatalf("Marshal SideEffect with Detail: %v", err)
+		}
+
+		var got SideEffect
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatalf("Unmarshal SideEffect with Detail: %v", err)
+		}
+
+		if got.Detail == nil {
+			t.Fatal("Detail should not be nil after round-trip")
+		}
+
+		// Verify string value preserved.
+		langType, ok := got.Detail["language_type"]
+		if !ok {
+			t.Fatal("Detail missing key \"language_type\"")
+		}
+		langStr, ok := langType.(string)
+		if !ok {
+			t.Fatalf("Detail[\"language_type\"] is %T, want string", langType)
+		}
+		if langStr != "RaiseException" {
+			t.Errorf("Detail[\"language_type\"] = %q, want %q",
+				langStr, "RaiseException")
+		}
+
+		// Verify numeric value survives float64 round-trip.
+		conf, ok := got.Detail["confidence"]
+		if !ok {
+			t.Fatal("Detail missing key \"confidence\"")
+		}
+		confFloat, ok := conf.(float64)
+		if !ok {
+			t.Fatalf("Detail[\"confidence\"] is %T, want float64", conf)
+		}
+		if confFloat != 0.95 {
+			t.Errorf("Detail[\"confidence\"] = %v, want 0.95", confFloat)
+		}
+	})
+
+	t.Run("omitempty", func(t *testing.T) {
+		se := SideEffect{
+			ID:          "se-00000000",
+			Type:        ReturnValue,
+			Tier:        TierP0,
+			Location:    "foo.go:1:1",
+			Description: "returns int",
+			Target:      "int",
+			Detail:      nil,
+		}
+
+		data, err := json.Marshal(se)
+		if err != nil {
+			t.Fatalf("Marshal SideEffect with nil Detail: %v", err)
+		}
+
+		if contains(string(data), "detail") {
+			t.Errorf("nil Detail should be omitted from JSON: %s", data)
+		}
+	})
+}
+
 func TestFunctionTarget_QualifiedName(t *testing.T) {
 	tests := []struct {
 		name     string

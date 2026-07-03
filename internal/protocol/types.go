@@ -35,7 +35,7 @@ const (
 
 // ProtocolVersion is the current protocol version. Included in the
 // initialize handshake for compatibility checking.
-const ProtocolVersion = "1.0.0"
+const ProtocolVersion = "1.1.0"
 
 // JSON-RPC 2.0 version string.
 const jsonRPCVersion = "2.0"
@@ -229,6 +229,12 @@ type AnalyzedSideEffect struct {
 	// the analyzer does not classify effects (classification is
 	// then done by gaze via classify_signals or defaults).
 	Classification *AnalyzedClassification `json:"classification,omitempty"`
+
+	// Detail is optional language-specific metadata provided by
+	// the external analyzer. It is opaque to gaze's scoring and
+	// classification logic — passed through to taxonomy.SideEffect
+	// and ultimately to JSON output and AI report pipelines.
+	Detail map[string]any `json:"detail,omitempty"`
 }
 
 // AnalyzedClassification is the classification data attached to a

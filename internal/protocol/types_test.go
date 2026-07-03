@@ -16,7 +16,7 @@ func TestRoundTrip_InitializeResult(t *testing.T) {
 			TestMapping:     true,
 			ClassifySignals: false,
 		},
-		ProtocolVersion: "1.0.0",
+		ProtocolVersion: "1.1.0",
 		AnalyzerName:    "snake-eyes",
 		Language:        "python",
 	}

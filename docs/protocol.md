@@ -1,6 +1,6 @@
 # Gaze Analyzer Protocol Specification
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Transport**: JSON-RPC 2.0 over stdin/stdout
 
 ## Overview
@@ -127,7 +127,7 @@ Handshake method. Must be the first method called. Returns the analyzer's capabi
     "classify_signals": false,
     "streaming": false
   },
-  "protocol_version": "1.0.0",
+  "protocol_version": "1.1.0",
   "analyzer_name": "snake-eyes",
   "language": "python",
   "language_version": "3.12.0"
@@ -178,6 +178,9 @@ Detect side effects for all functions in the project.
           "description": "returns division result",
           "location": "math_utils/ops.py:25:5",
           "target": "result",
+          "detail": {
+            "python_type": "float"
+          },
           "classification": {
             "label": "contractual",
             "confidence": 90
@@ -188,6 +191,9 @@ Detect side effects for all functions in the project.
           "description": "raises ZeroDivisionError",
           "location": "math_utils/ops.py:22:9",
           "target": "ZeroDivisionError",
+          "detail": {
+            "exception_class": "ZeroDivisionError"
+          },
           "classification": {
             "label": "contractual",
             "confidence": 85
@@ -201,21 +207,108 @@ Detect side effects for all functions in the project.
 
 #### Side Effect Types
 
-Analyzers map their language concepts to Gaze's taxonomy. Common mappings:
+Analyzers map their language concepts to Gaze's universal taxonomy of 48 canonical side effect types. Each type belongs to exactly one priority tier (P0–P4). Unknown types default to P4 tier with a warning.
 
-| Gaze Type | Python | Rust | Description |
-|-----------|--------|------|-------------|
-| `ReturnValue` | `return`, `yield` | `return`, `Ok(v)` | Function returns a value |
-| `ErrorReturn` | `raise`, exception | `Err(e)`, `panic!` | Function signals an error |
-| `ReceiverMutation` | `self.x = ...` | `&mut self` | Mutates the receiver/self |
-| `PointerArgMutation` | mutable arg | `&mut` param | Mutates a parameter |
-| `GlobalMutation` | module-level write | `static mut` | Modifies global state |
-| `FileSystemWrite` | `open().write()` | `fs::write()` | Writes to filesystem |
-| `FileSystemRead` | `open().read()` | `fs::read()` | Reads from filesystem |
-| `NetworkCall` | `requests.get()` | `reqwest::get()` | Makes network request |
-| `GoroutineSpawn` | `threading.Thread` | `tokio::spawn` | Spawns concurrent task |
+##### P0 — Must Detect (6 types)
 
-The full taxonomy is defined in `internal/taxonomy/types.go`. Unknown types default to P4 tier with a warning.
+| Type | Tier | Definition | Go Mapping | Python Mapping |
+|------|------|-----------|------------|----------------|
+| `ReturnValue` | P0 | Function returns a value | `return x` | `return x` |
+| `ErrorReturn` | P0 | Function signals an error | `return err` | `raise Exception` |
+| `SentinelError` | P0 | Named error constant/value callers match against | `var ErrFoo = errors.New(...)` | `class FooError(Exception)` |
+| `ReceiverMutation` | P0 | Mutates the receiver/self | `s.field = x` | `self.field = x` |
+| `PointerArgMutation` | P0 | Mutates a parameter passed by reference | `*arg = x` | mutable arg mutation |
+| `ErrorSignal` | P0 | Language-neutral error signaling mechanism | `return err` | `raise`, `throw` |
+
+##### P1 — High Value (11 types)
+
+| Type | Tier | Definition | Go Mapping | Python Mapping |
+|------|------|-----------|------------|----------------|
+| `SliceMutation` | P1 | Mutates a dynamic array/list parameter | `slice[i] = x` | `list[i] = x` |
+| `MapMutation` | P1 | Mutates a dictionary/hash map parameter | `m[k] = v` | `dict[k] = v` |
+| `GlobalMutation` | P1 | Writes to module-level / global state | `pkg.Var = x` | module-level write |
+| `WriterOutput` | P1 | Writes to an injected output stream | `w.Write(data)` | `writer.write(data)` |
+| `HTTPResponseWrite` | P1 | Writes to an HTTP response object | `w.WriteHeader(200)` | `response.write(data)` |
+| `ChannelSend` | P1 | Sends a value to a concurrency channel/queue | `ch <- v` | `queue.put(v)` |
+| `ChannelClose` | P1 | Closes a concurrency channel/queue | `close(ch)` | `queue.close()` |
+| `DeferredReturnMutation` | P1 | Mutates a return value in a deferred/finally block | `defer func() { err = wrap(err) }()` | `finally: result = ...` |
+| `GeneratorYield` | P1 | Yields a value from a generator/iterator | *(no direct equivalent)* | `yield x` |
+| `ContainerMutation` | P1 | Mutates a generic container parameter (set, deque, etc.) | *(no direct equivalent)* | `set.add(x)`, `deque.append(x)` |
+| `StreamOutput` | P1 | Writes to a generic output stream | `stream.Write(data)` | `stream.write(data)` |
+
+##### P2 — Important (16 types)
+
+| Type | Tier | Definition | Go Mapping | Python Mapping |
+|------|------|-----------|------------|----------------|
+| `FileSystemWrite` | P2 | Writes to filesystem | `os.WriteFile(...)` | `open().write()` |
+| `FileSystemDelete` | P2 | Deletes a filesystem entry | `os.Remove(...)` | `os.remove(...)` |
+| `FileSystemMeta` | P2 | Modifies filesystem metadata (permissions, timestamps) | `os.Chmod(...)` | `os.chmod(...)` |
+| `DatabaseWrite` | P2 | Writes to a database | `db.Exec(...)` | `cursor.execute(...)` |
+| `DatabaseTransaction` | P2 | Manages a database transaction | `tx.Commit()` | `conn.commit()` |
+| `GoroutineSpawn` | P2 | Spawns a concurrent task | `go func(){}()` | `threading.Thread(...)` |
+| `Panic` | P2 | Unrecoverable error / panic / abort | `panic(msg)` | `sys.exit(1)` |
+| `CallbackInvocation` | P2 | Invokes a function parameter (callback, closure) | `fn()` | `callback()` |
+| `LogWrite` | P2 | Writes to a logging system | `log.Printf(...)` | `logging.info(...)` |
+| `ContextCancellation` | P2 | Cancels a context or cancellation token | `cancel()` | `event.set()` |
+| `AsyncGeneratorYield` | P2 | Yields from an async generator | *(no direct equivalent)* | `async def gen(): yield x` |
+| `MetaprogrammingMutation` | P2 | Mutates program structure at runtime | *(no direct equivalent)* | `setattr(obj, name, val)` |
+| `DescriptorEffect` | P2 | Side effect via descriptor protocol | *(no direct equivalent)* | `__set__`, `__delete__` |
+| `ResourceManagement` | P2 | Acquires or releases an external resource | `file.Close()` | `__enter__`/`__exit__` |
+| `ImportSideEffect` | P2 | Module import triggers observable side effects | `import _ "pkg"` | `import module` (with side effects) |
+| `MonkeyPatch` | P2 | Runtime replacement of functions/methods | *(no direct equivalent)* | `module.func = mock` |
+
+##### P3 — Nice to Have (9 types)
+
+| Type | Tier | Definition | Go Mapping | Python Mapping |
+|------|------|-----------|------------|----------------|
+| `StdoutWrite` | P3 | Writes to standard output | `fmt.Println(...)` | `print(...)` |
+| `StderrWrite` | P3 | Writes to standard error | `fmt.Fprintln(os.Stderr, ...)` | `print(..., file=sys.stderr)` |
+| `EnvVarMutation` | P3 | Modifies environment variables | `os.Setenv(k, v)` | `os.environ[k] = v` |
+| `MutexOp` | P3 | Acquires or releases a mutex/lock | `mu.Lock()` | `lock.acquire()` |
+| `WaitGroupOp` | P3 | Operates on a synchronization barrier | `wg.Add(1)` | `barrier.wait()` |
+| `AtomicOp` | P3 | Performs an atomic memory operation | `atomic.AddInt64(...)` | *(no direct equivalent)* |
+| `TimeDependency` | P3 | Depends on wall-clock time | `time.Now()` | `time.time()` |
+| `ProcessExit` | P3 | Terminates the process | `os.Exit(1)` | `sys.exit(1)` |
+| `RecoverBehavior` | P3 | Recovers from a panic/exception | `recover()` | `except Exception:` |
+
+##### P4 — Exotic (6 types)
+
+| Type | Tier | Definition | Go Mapping | Python Mapping |
+|------|------|-----------|------------|----------------|
+| `ReflectionMutation` | P4 | Mutates state via reflection | `reflect.ValueOf(&x).Elem().Set(...)` | `setattr(obj, name, val)` |
+| `UnsafeMutation` | P4 | Mutates state via unsafe pointer operations | `unsafe.Pointer` | `ctypes` pointer writes |
+| `CgoCall` | P4 | Calls foreign function interface (FFI) | `C.function()` | `ctypes.cdll.func()` |
+| `FinalizerRegistration` | P4 | Registers a finalizer/destructor callback | `runtime.SetFinalizer(...)` | `weakref.finalize(...)` |
+| `SyncPoolOp` | P4 | Operates on an object pool | `sync.Pool.Get/Put` | *(no direct equivalent)* |
+| `ClosureCaptureMutation` | P4 | Mutates a variable captured by a closure | captured var write | captured var write |
+
+##### Language-Neutral Aliases
+
+The following aliases allow analyzers to use language-neutral names that resolve to the same canonical type:
+
+| Alias | Resolves To | Use When |
+|-------|------------|----------|
+| `AsyncTaskSpawn` | `GoroutineSpawn` | Spawning async tasks, threads, coroutines |
+| `AsyncMessageSend` | `ChannelSend` | Sending to queues, mailboxes, actors |
+| `AsyncChannelClose` | `ChannelClose` | Closing queues, mailboxes, streams |
+| `BarrierOp` | `WaitGroupOp` | Barriers, latches, countdown events |
+| `PanicRecovery` | `RecoverBehavior` | Exception handling, panic recovery |
+| `FFICall` | `CgoCall` | Foreign function interface calls (ctypes, napi, JNI) |
+| `ObjectPoolOp` | `SyncPoolOp` | Object/connection pool operations |
+| `DeferredMutation` | `DeferredReturnMutation` | Finally blocks, scope guards, RAII cleanup |
+| `ArgumentMutation` | `PointerArgMutation` | Mutating parameters passed by reference |
+| `ProcessTermination` | `Panic` | Process abort, unrecoverable errors |
+| `SentinelErrorDecl` | `SentinelError` | Named error type/constant declarations |
+
+Aliases are accepted in `analyze` responses and resolve to the canonical type for scoring and classification. The full taxonomy is defined in `internal/taxonomy/types.go`.
+
+##### The `detail` Field
+
+Each side effect in the `analyze` response may include an optional `detail` object containing language-specific metadata. This field is **opaque to Gaze** — it is passed through to JSON output and AI report pipelines without interpretation. Gaze does not use `detail` for scoring, classification, or CRAP computation.
+
+Use `detail` to provide context that helps AI report generators or downstream tooling understand the effect in language-specific terms (e.g., exception class names, decorator metadata, type annotations).
+
+> **Size guidance**: Keep `detail` payloads small — under 1KB per effect. Large payloads increase JSON output size and may degrade AI report quality. Include only the metadata needed for downstream interpretation.
 
 #### Classification
 
@@ -542,7 +635,7 @@ def handle(request):
     if method == "initialize":
         return {"jsonrpc": "2.0", "id": rid, "result": {
             "capabilities": {"discover": False, "test_mapping": False, "classify_signals": False},
-            "protocol_version": "1.0.0",
+            "protocol_version": "1.1.0",
             "analyzer_name": "minimal-python",
             "language": "python"
         }}
