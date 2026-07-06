@@ -37,3 +37,8 @@ func SafeSSABuild(buildFn func()) any {
 func ExprRootIdent(expr ast.Expr) *ast.Ident {
 	return exprRootIdent(expr)
 }
+
+// IsPointerArgStore is exported for testing. See isPointerArgStore.
+func IsPointerArgStore(store *ssa.Store, ptrParams map[string]*ssa.Parameter) (string, bool) {
+	return isPointerArgStore(store, ptrParams)
+}

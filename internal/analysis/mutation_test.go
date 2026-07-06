@@ -10,6 +10,7 @@ import (
 	"github.com/unbound-force/gaze/internal/analysis"
 	"github.com/unbound-force/gaze/internal/taxonomy"
 	"golang.org/x/tools/go/packages"
+	"golang.org/x/tools/go/ssa"
 )
 
 // ---------------------------------------------------------------------------
@@ -276,4 +277,211 @@ func toTypesFunc(pkg *packages.Package, fd *ast.FuncDecl) *types.Func {
 	}
 	fn, _ := obj.(*types.Func)
 	return fn
+}
+
+// ---------------------------------------------------------------------------
+// isPointerArgStore helpers
+// ---------------------------------------------------------------------------
+
+// extractStoresForFunc walks the SSA blocks of the named function
+// and returns the function and all its Store instructions. For
+// top-level functions, looks up via ssaPkg.Members. Fails the test
+// if the function is not found.
+func extractStoresForFunc(t *testing.T, ssaPkg *ssa.Package, funcName string) (*ssa.Function, []*ssa.Store) {
+	t.Helper()
+
+	member, ok := ssaPkg.Members[funcName]
+	if !ok {
+		t.Fatalf("SSA member %q not found in package", funcName)
+	}
+	fn, ok := member.(*ssa.Function)
+	if !ok {
+		t.Fatalf("SSA member %q is %T, want *ssa.Function", funcName, member)
+	}
+
+	var stores []*ssa.Store
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if store, ok := instr.(*ssa.Store); ok {
+				stores = append(stores, store)
+			}
+		}
+	}
+	return fn, stores
+}
+
+// extractStoresForMethod walks the SSA blocks of a method on the
+// given named type and returns all Store instructions. Looks up the
+// method via the pointer receiver's method set.
+func extractStoresForMethod(t *testing.T, ssaPkg *ssa.Package, typeName, methodName string) (*ssa.Function, []*ssa.Store) {
+	t.Helper()
+
+	member, ok := ssaPkg.Members[typeName]
+	if !ok {
+		t.Fatalf("SSA member %q not found in package", typeName)
+	}
+	namedType, ok := member.(*ssa.Type)
+	if !ok {
+		t.Fatalf("SSA member %q is %T, want *ssa.Type", typeName, member)
+	}
+
+	// Look up via pointer receiver method set (covers both value
+	// and pointer receiver methods).
+	ptrType := types.NewPointer(namedType.Type())
+	mset := types.NewMethodSet(ptrType)
+	var fn *ssa.Function
+	for i := 0; i < mset.Len(); i++ {
+		sel := mset.At(i)
+		if sel.Obj().Name() == methodName {
+			fn = ssaPkg.Prog.MethodValue(sel)
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatalf("method %s on type %s not found in SSA", methodName, typeName)
+	}
+
+	var stores []*ssa.Store
+	for _, block := range fn.Blocks {
+		for _, instr := range block.Instrs {
+			if store, ok := instr.(*ssa.Store); ok {
+				stores = append(stores, store)
+			}
+		}
+	}
+	return fn, stores
+}
+
+// buildPtrParams returns a map of parameter name → *ssa.Parameter
+// for all pointer-typed parameters. When skipReceiver is true and
+// the function is a method (has at least one param), the first
+// parameter (receiver) is skipped.
+func buildPtrParams(ssaFn *ssa.Function, skipReceiver bool) map[string]*ssa.Parameter {
+	params := make(map[string]*ssa.Parameter)
+	start := 0
+	if skipReceiver && len(ssaFn.Params) > 0 {
+		start = 1
+	}
+	for i := start; i < len(ssaFn.Params); i++ {
+		p := ssaFn.Params[i]
+		if _, ok := p.Type().(*types.Pointer); ok {
+			params[p.Name()] = p
+		}
+	}
+	return params
+}
+
+// ---------------------------------------------------------------------------
+// isPointerArgStore tests
+// ---------------------------------------------------------------------------
+
+// TestIsPointerArgStore verifies that isPointerArgStore correctly
+// identifies stores through pointer parameters across all branch
+// patterns (FieldAddr, IndexAddr, UnOp dereference) and rejects
+// stores that do not trace to a pointer parameter.
+func TestIsPointerArgStore(t *testing.T) {
+	_, ssaPkg := loadTestPackageWithSSA(t, "mutation")
+	if ssaPkg == nil {
+		t.Fatal("SSA construction failed for mutation package")
+	}
+
+	t.Run("FieldAddr", func(t *testing.T) {
+		fn, stores := extractStoresForFunc(t, ssaPkg, "SetTimeout")
+		ptrParams := buildPtrParams(fn, false)
+
+		if _, ok := ptrParams["cfg"]; !ok {
+			t.Fatal("expected 'cfg' in ptrParams for SetTimeout")
+		}
+
+		foundCfg := false
+		for _, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, ptrParams)
+			if matched && name == "cfg" {
+				foundCfg = true
+			}
+		}
+		if !foundCfg {
+			t.Error("expected at least one store to match pointer param 'cfg' via FieldAddr")
+		}
+	})
+
+	t.Run("IndexAddr", func(t *testing.T) {
+		fn, stores := extractStoresForFunc(t, ssaPkg, "Normalize")
+		ptrParams := buildPtrParams(fn, false)
+
+		if _, ok := ptrParams["v"]; !ok {
+			t.Fatal("expected 'v' in ptrParams for Normalize")
+		}
+
+		foundV := false
+		for _, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, ptrParams)
+			if matched && name == "v" {
+				foundV = true
+			}
+		}
+		if !foundV {
+			t.Error("expected at least one store to match pointer param 'v' via IndexAddr")
+		}
+	})
+
+	t.Run("UnOpDereference", func(t *testing.T) {
+		fn, stores := extractStoresForFunc(t, ssaPkg, "FillSlice")
+		ptrParams := buildPtrParams(fn, false)
+
+		if _, ok := ptrParams["dst"]; !ok {
+			t.Fatal("expected 'dst' in ptrParams for FillSlice")
+		}
+
+		foundDst := false
+		for _, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, ptrParams)
+			if matched && name == "dst" {
+				foundDst = true
+			}
+		}
+		if !foundDst {
+			t.Error("expected at least one store to match pointer param 'dst' via UnOp dereference")
+		}
+	})
+
+	t.Run("NoMatch_ReadOnly", func(t *testing.T) {
+		fn, stores := extractStoresForFunc(t, ssaPkg, "ReadOnly")
+		ptrParams := buildPtrParams(fn, false)
+
+		for i, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, ptrParams)
+			if matched {
+				t.Errorf("store[%d]: IsPointerArgStore returned (%q, true), want (\"\", false)", i, name)
+			}
+		}
+	})
+
+	t.Run("NoMatch_EmptyParams", func(t *testing.T) {
+		_, stores := extractStoresForFunc(t, ssaPkg, "FillSlice")
+		emptyParams := map[string]*ssa.Parameter{}
+
+		for i, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, emptyParams)
+			if matched {
+				t.Errorf("store[%d]: IsPointerArgStore with empty params returned (%q, true), want (\"\", false)", i, name)
+			}
+		}
+	})
+
+	t.Run("NoMatch_ReceiverStore", func(t *testing.T) {
+		fn, stores := extractStoresForMethod(t, ssaPkg, "Counter", "Increment")
+
+		// Build ptrParams skipping the receiver — the receiver is
+		// the first param in SSA for methods. Since Increment has
+		// no other pointer params, ptrParams should be empty.
+		ptrParams := buildPtrParams(fn, true)
+
+		for i, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, ptrParams)
+			if matched {
+				t.Errorf("store[%d]: IsPointerArgStore returned (%q, true) for receiver store, want (\"\", false)", i, name)
+			}
+		}
+	})
 }

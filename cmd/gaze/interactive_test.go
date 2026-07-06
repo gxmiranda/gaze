@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 	"github.com/unbound-force/gaze/internal/taxonomy"
@@ -304,4 +305,147 @@ func TestRenderAnalyzeContent_NoSideEffects(t *testing.T) {
 	if !strings.Contains(output, "0 side effect(s)") {
 		t.Errorf("expected output to contain '0 side effect(s)', got:\n%s", output)
 	}
+}
+
+// TestUpdate verifies the Bubble Tea Update method on analyzeModel,
+// covering viewport initialization, resize, quit key, help toggle,
+// and unhandled message passthrough.
+func TestUpdate(t *testing.T) {
+	t.Run("WindowSizeMsg_InitializesViewport", func(t *testing.T) {
+		m := newAnalyzeModel(nil)
+		if m.ready {
+			t.Fatal("expected ready to be false before first WindowSizeMsg")
+		}
+
+		result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		updated, ok := result.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+
+		if !updated.ready {
+			t.Error("expected ready to be true after WindowSizeMsg")
+		}
+		if updated.viewport.Width != 80 {
+			t.Errorf("expected viewport width 80, got %d", updated.viewport.Width)
+		}
+		// footerHeight is 2, so viewport height = 24 - 2 = 22.
+		if updated.viewport.Height != 22 {
+			t.Errorf("expected viewport height 22 (24 - 2 footerHeight), got %d", updated.viewport.Height)
+		}
+	})
+
+	t.Run("WindowSizeMsg_Resize", func(t *testing.T) {
+		m := newAnalyzeModel(nil)
+
+		// First WindowSizeMsg initializes the viewport.
+		result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		m2, ok := result.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+		if !m2.ready {
+			t.Fatal("expected ready after first WindowSizeMsg")
+		}
+
+		// Second WindowSizeMsg resizes the existing viewport.
+		result2, _ := m2.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+		updated, ok := result2.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+
+		if !updated.ready {
+			t.Error("expected ready to remain true after resize")
+		}
+		if updated.viewport.Width != 120 {
+			t.Errorf("expected viewport width 120, got %d", updated.viewport.Width)
+		}
+		// footerHeight is 2, so viewport height = 40 - 2 = 38.
+		if updated.viewport.Height != 38 {
+			t.Errorf("expected viewport height 38 (40 - 2 footerHeight), got %d", updated.viewport.Height)
+		}
+	})
+
+	t.Run("KeyMsg_Quit", func(t *testing.T) {
+		m := newAnalyzeModel(nil)
+
+		// Initialize viewport first so key handling proceeds normally.
+		result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		m2, ok := result.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+
+		// Send the quit key ('q').
+		_, cmd := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+		if cmd == nil {
+			t.Fatal("expected non-nil command for quit key")
+		}
+		msg := cmd()
+		if _, ok := msg.(tea.QuitMsg); !ok {
+			t.Errorf("expected tea.QuitMsg, got %T", msg)
+		}
+	})
+
+	t.Run("KeyMsg_HelpToggle", func(t *testing.T) {
+		m := newAnalyzeModel(nil)
+
+		// Initialize viewport.
+		result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		m2, ok := result.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+		if m2.help.ShowAll {
+			t.Fatal("expected ShowAll to be false initially")
+		}
+
+		// First '?' press — toggle help on.
+		result3, _ := m2.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+		m3, ok := result3.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+		if !m3.help.ShowAll {
+			t.Error("expected ShowAll to be true after pressing '?'")
+		}
+
+		// Second '?' press — toggle help off.
+		result4, _ := m3.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'?'}})
+		m4, ok := result4.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+		if m4.help.ShowAll {
+			t.Error("expected ShowAll to be false after second '?' press")
+		}
+	})
+
+	t.Run("UnhandledMsg", func(t *testing.T) {
+		type customMsg struct{}
+
+		m := newAnalyzeModel(nil)
+
+		// Initialize viewport.
+		result, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		m2, ok := result.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+		readyBefore := m2.ready
+
+		// Send an unhandled message type — should not panic or change ready.
+		result3, cmd := m2.Update(customMsg{})
+		m3, ok := result3.(analyzeModel)
+		if !ok {
+			t.Fatal("expected analyzeModel from Update")
+		}
+
+		if m3.ready != readyBefore {
+			t.Error("ready flag changed after unhandled message")
+		}
+		// cmd may be non-nil (viewport may return a cmd), but no panic.
+		_ = cmd
+	})
 }
