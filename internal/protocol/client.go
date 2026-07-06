@@ -23,7 +23,6 @@ const (
 	// ShortTimeout is the default timeout for initialize, discover,
 	// and shutdown methods (30 seconds).
 	ShortTimeout = 30 * time.Second
-
 )
 
 // Client manages a JSON-RPC 2.0 session with an external analyzer

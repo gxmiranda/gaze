@@ -104,4 +104,3 @@ func (a *GoSideEffectAnalyzer) Analyze(pkgPath string) ([]taxonomy.AnalysisResul
 	classified := classify.Classify(results, clOpts)
 	return classified, nil
 }
-
