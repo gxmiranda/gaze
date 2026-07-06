@@ -59,6 +59,12 @@ type Config struct {
 	}
 }
 
+// SetTimeout writes to a field of a struct pointer parameter.
+// Used to test the FieldAddr branch of isPointerArgStore.
+func SetTimeout(cfg *Config, val int) {
+	cfg.Timeout = val
+}
+
 // UpdateConfig mutates a receiver field.
 func (c *Config) UpdateConfig(timeout int) {
 	c.Timeout = timeout
