@@ -217,7 +217,7 @@ func runAnalyze(p analyzeParams) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	pkgPaths, err := loader.ResolvePackagePaths(p.patterns, moduleDir)
+	pkgPaths, err := loader.ResolvePackagePaths(p.patterns, moduleDir, p.stderr)
 	if err != nil {
 		return fmt.Errorf("resolving package patterns: %w", err)
 	}
@@ -1066,7 +1066,7 @@ func runQuality(p qualityParams) error {
 		return fmt.Errorf("getting working directory: %w", err)
 	}
 
-	pkgPaths, err := loader.ResolvePackagePaths(p.patterns, moduleDir)
+	pkgPaths, err := loader.ResolvePackagePaths(p.patterns, moduleDir, p.stderr)
 	if err != nil {
 		return fmt.Errorf("resolving package patterns: %w", err)
 	}

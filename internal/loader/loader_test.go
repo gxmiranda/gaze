@@ -1,6 +1,7 @@
 package loader_test
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -121,7 +122,7 @@ func TestResolvePackagePaths_Wildcard(t *testing.T) {
 	}
 
 	root := findModuleRoot(t)
-	paths, err := loader.ResolvePackagePaths([]string{"./..."}, root)
+	paths, err := loader.ResolvePackagePaths([]string{"./..."}, root, nil)
 	if err != nil {
 		t.Fatalf("ResolvePackagePaths failed: %v", err)
 	}
@@ -153,7 +154,7 @@ func TestResolvePackagePaths_SinglePackage(t *testing.T) {
 
 	root := findModuleRoot(t)
 	paths, err := loader.ResolvePackagePaths(
-		[]string{"github.com/unbound-force/gaze/internal/loader"}, root,
+		[]string{"github.com/unbound-force/gaze/internal/loader"}, root, nil,
 	)
 	if err != nil {
 		t.Fatalf("ResolvePackagePaths failed: %v", err)
@@ -168,12 +169,39 @@ func TestResolvePackagePaths_SinglePackage(t *testing.T) {
 
 func TestResolvePackagePaths_EmptyPatterns(t *testing.T) {
 	root := findModuleRoot(t)
-	paths, err := loader.ResolvePackagePaths([]string{}, root)
+	paths, err := loader.ResolvePackagePaths([]string{}, root, nil)
 	if err != nil {
 		t.Fatalf("ResolvePackagePaths failed: %v", err)
 	}
 	if len(paths) != 0 {
 		t.Errorf("expected 0 paths for empty patterns, got %d: %v", len(paths), paths)
+	}
+}
+
+func TestResolvePackagePaths_InvalidPattern(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow test: loads package via go/packages")
+	}
+
+	root := findModuleRoot(t)
+	var buf bytes.Buffer
+	paths, err := loader.ResolvePackagePaths(
+		[]string{"github.com/nonexistent/does/not/exist"}, root, &buf,
+	)
+	if err != nil {
+		t.Fatalf("ResolvePackagePaths returned unexpected error: %v", err)
+	}
+	if len(paths) != 0 {
+		t.Errorf("expected empty paths for nonexistent pattern, got %v", paths)
+	}
+
+	// Verify warning was written to stderr.
+	stderr := buf.String()
+	if !strings.Contains(stderr, "warning: skipping") {
+		t.Errorf("expected warning prefix in stderr, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "github.com/nonexistent/does/not/exist") {
+		t.Errorf("expected package path in stderr warning, got %q", stderr)
 	}
 }
 

@@ -5,6 +5,7 @@ package loader
 import (
 	"fmt"
 	"go/token"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -151,7 +152,12 @@ func FindModuleRoot(startDir string) (string, error) {
 // wildcards) to individual fully-qualified package paths. It uses a
 // lightweight NeedName load mode, deduplicates results, and filters
 // out test-variant packages (those with a "_test" suffix).
-func ResolvePackagePaths(patterns []string, moduleDir string) ([]string, error) {
+//
+// Packages with load errors (e.g., nonexistent patterns that produce
+// synthetic packages from go/packages) are skipped and a warning is
+// written to stderr for each error. If stderr is nil, warnings are
+// silently discarded.
+func ResolvePackagePaths(patterns []string, moduleDir string, stderr io.Writer) ([]string, error) {
 	if len(patterns) == 0 {
 		return nil, nil
 	}
@@ -168,6 +174,17 @@ func ResolvePackagePaths(patterns []string, moduleDir string) ([]string, error) 
 	seen := make(map[string]bool)
 	for _, pkg := range pkgs {
 		if pkg.PkgPath == "" || seen[pkg.PkgPath] || strings.HasSuffix(pkg.PkgPath, "_test") {
+			continue
+		}
+		// Skip packages that failed to load (phantom paths from
+		// unresolvable patterns). go/packages returns err == nil
+		// at the call level but populates pkg.Errors.
+		if len(pkg.Errors) > 0 {
+			if stderr != nil {
+				for _, e := range pkg.Errors {
+					_, _ = fmt.Fprintf(stderr, "warning: skipping %s: %s\n", pkg.PkgPath, e)
+				}
+			}
 			continue
 		}
 		seen[pkg.PkgPath] = true

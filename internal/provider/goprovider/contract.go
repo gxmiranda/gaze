@@ -99,7 +99,7 @@ func BuildContractCoverageFunc(
 	stderr io.Writer,
 	aiMapperFn ...quality.AIMapperFunc,
 ) (func(pkg, function string) (crap.ContractCoverageInfo, bool), []string) {
-	pkgPaths, err := loader.ResolvePackagePaths(patterns, moduleDir)
+	pkgPaths, err := loader.ResolvePackagePaths(patterns, moduleDir, stderr)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "quality pipeline: failed to resolve packages: %v\n", err)
 		return nil, nil
