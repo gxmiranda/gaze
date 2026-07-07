@@ -1,0 +1,18 @@
+{
+  "pr_number": 183,
+  "fetched_at": "2026-07-03T10:00:00Z",
+  "items": [
+    {
+      "thread_id": "PRRT_kwDORU7ATs6OJ-BP",
+      "comment_id": 3519093165,
+      "reviewer": "em-redhat",
+      "authority": "maintainer",
+      "classification": "data-driven",
+      "tier": 1,
+      "evidence": ["AGENTS.md Documentation Validation Gate"],
+      "recommendation": "accept",
+      "decision": null,
+      "status": "assessed"
+    }
+  ]
+}
