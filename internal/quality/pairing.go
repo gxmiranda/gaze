@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"go/ast"
 	"go/types"
-	"log"
 	"sort"
 	"strings"
 
+	"github.com/charmbracelet/log"
 	"golang.org/x/tools/go/packages"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/ssa/ssautil"
@@ -133,8 +133,8 @@ func BuildTestSSA(pkg *packages.Package) (program *ssa.Program, ssaPkg *ssa.Pack
 	)
 
 	if r := safeSSABuild(prog.Build); r != nil {
-		log.Printf("warning: SSA build skipped for %s: internal panic recovered", pkg.PkgPath)
-		log.Printf("debug: SSA panic value for %s: %v", pkg.PkgPath, r)
+		log.Warn("SSA build skipped: internal panic recovered", "pkg", pkg.PkgPath)
+		log.Debug("SSA panic value", "pkg", pkg.PkgPath, "panic", r)
 		return nil, nil, fmt.Errorf("SSA build panicked for package %s: internal panic recovered", pkg.PkgPath)
 	}
 

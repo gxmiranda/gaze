@@ -67,7 +67,7 @@ func TestSafeSSABuild_PanicError(t *testing.T) {
 // mocked or injected. The recovery pattern is verified through the
 // safeSSABuild helper tests above (which exercise the identical
 // defer/recover logic). BuildSSA's logging behavior is verified by
-// code inspection — the log.Printf calls are co-located with the
+// code inspection — the log.Warn/log.Debug calls are co-located with the
 // safeSSABuild call in the same if-block.
 // ---------------------------------------------------------------------------
 
