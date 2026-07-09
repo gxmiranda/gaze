@@ -384,10 +384,10 @@ func TestErrorSignal_TierBoost(t *testing.T) {
 func TestSideEffect_DetailMarshal(t *testing.T) {
 	t.Run("round-trip", func(t *testing.T) {
 		se := SideEffect{
-			ID:       "se-deadbeef",
-			Type:     GeneratorYield,
-			Tier:     TierP1,
-			Location: "gen.py:42:1",
+			ID:          "se-deadbeef",
+			Type:        GeneratorYield,
+			Tier:        TierP1,
+			Location:    "gen.py:42:1",
 			Description: "yields value",
 			Target:      "int",
 			Detail: map[string]any{
