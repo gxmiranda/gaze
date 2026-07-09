@@ -7,7 +7,6 @@ package goprovider
 import (
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
@@ -110,86 +109,19 @@ func BuildContractCoverageFunc(
 	}
 
 	// Load config once for all packages.
-	gazeConfig := loadGazeConfigBestEffort(moduleDir)
+	gazeConfig := config.LoadFromDir(moduleDir)
 
-	// Build coverage map: "shortPkg:qualifiedName" -> coverage info.
-	coverageMap := make(map[string]crap.ContractCoverageInfo)
-	// effectsSet tracks functions that have >0 detected side effects,
+	// Build effects set: functions with >0 detected side effects,
 	// regardless of whether they have test coverage. Used to
-	// distinguish "no_test_coverage" from "no_effects_detected" when
-	// a function is absent from the coverage map.
-	effectsSet := make(map[string]bool)
-	var degradedPkgs []string
+	// distinguish "no_test_coverage" from "no_effects_detected"
+	// when a function is absent from the coverage map.
+	effectsSet := buildEffectsSet(pkgPaths, nil)
 
-	for _, pkgPath := range pkgPaths {
-		// Build the effects set from analysis results before the
-		// quality pipeline runs. This captures functions with
-		// effects even when loadTestPackage fails (no tests).
-		analysisOpts := analysis.Options{
-			IncludeUnexported: loader.IsMainPkg(pkgPath),
-		}
-		analysisResults, analysisErr := analysis.LoadAndAnalyze(pkgPath, analysisOpts)
-		if analysisErr == nil {
-			for _, result := range analysisResults {
-				if len(result.SideEffects) > 0 {
-					shortPkg := extractShortPkgName(result.Target.Package)
-					key := shortPkg + ":" + result.Target.QualifiedName()
-					effectsSet[key] = true
-				}
-			}
-		}
-
-		var ccDeps contractCoverageDeps
-		if len(aiMapperFn) > 0 && aiMapperFn[0] != nil {
-			ccDeps.aiMapperFn = aiMapperFn[0]
-		}
-		reports, degradedPkg := analyzePackageCoverage(pkgPath, moduleDir, gazeConfig, stderr, ccDeps)
-		if degradedPkg != "" {
-			degradedPkgs = append(degradedPkgs, degradedPkg)
-		}
-		for _, report := range reports {
-			// Skip degraded reports — they have zero-valued
-			// TargetFunction and would create phantom entries
-			// with empty-string keys in the coverage map.
-			if report.TargetFunction.Function == "" {
-				continue
-			}
-			shortPkg := extractShortPkgName(report.TargetFunction.Package)
-			key := shortPkg + ":" + report.TargetFunction.QualifiedName()
-
-			info := crap.ContractCoverageInfo{
-				Percentage: report.ContractCoverage.Percentage,
-			}
-
-			// Compute coverage reason from classification data.
-			if report.ContractCoverage.TotalContractual == 0 {
-				minConf, maxConf := 100, 0
-				effectCount := 0
-				for _, e := range report.AmbiguousEffects {
-					if e.Classification != nil {
-						effectCount++
-						if e.Classification.Confidence < minConf {
-							minConf = e.Classification.Confidence
-						}
-						if e.Classification.Confidence > maxConf {
-							maxConf = e.Classification.Confidence
-						}
-					}
-				}
-				if effectCount > 0 {
-					info.Reason = "all_effects_ambiguous"
-					info.MinConfidence = minConf
-					info.MaxConfidence = maxConf
-				} else {
-					info.Reason = "no_effects_detected"
-				}
-			}
-
-			if existing, ok := coverageMap[key]; !ok || info.Percentage > existing.Percentage {
-				coverageMap[key] = info
-			}
-		}
+	// Build coverage map via quality pipeline.
+	ccDeps := contractCoverageDeps{
+		aiMapperFn: firstAIMapper(aiMapperFn),
 	}
+	coverageMap, degradedPkgs := buildCoverageMap(pkgPaths, moduleDir, gazeConfig, stderr, ccDeps)
 
 	if len(coverageMap) == 0 && len(effectsSet) == 0 {
 		return nil, degradedPkgs
@@ -213,6 +145,111 @@ func BuildContractCoverageFunc(
 		}
 		return crap.ContractCoverageInfo{Reason: "no_effects_detected"}, false
 	}, degradedPkgs
+}
+
+// buildEffectsSet runs side effect analysis on each package path and
+// returns a set of "shortPkg:qualifiedName" keys for functions that
+// have at least one detected side effect. Analysis errors for
+// individual packages are silently skipped (best-effort).
+func buildEffectsSet(
+	pkgPaths []string,
+	loadAndAnalyzeFn func(string, analysis.Options) ([]taxonomy.AnalysisResult, error),
+) map[string]bool {
+	if loadAndAnalyzeFn == nil {
+		loadAndAnalyzeFn = analysis.LoadAndAnalyze
+	}
+	effectsSet := make(map[string]bool)
+	for _, pkgPath := range pkgPaths {
+		analysisOpts := analysis.Options{
+			IncludeUnexported: loader.IsMainPkg(pkgPath),
+		}
+		results, err := loadAndAnalyzeFn(pkgPath, analysisOpts)
+		if err != nil {
+			continue
+		}
+		for _, result := range results {
+			if len(result.SideEffects) > 0 {
+				shortPkg := extractShortPkgName(result.Target.Package)
+				key := shortPkg + ":" + result.Target.QualifiedName()
+				effectsSet[key] = true
+			}
+		}
+	}
+	return effectsSet
+}
+
+// computeCoverageReason constructs a ContractCoverageInfo from a
+// quality report. It sets the Percentage from contract coverage data
+// and computes the Reason field when no contractual effects exist.
+func computeCoverageReason(report taxonomy.QualityReport) crap.ContractCoverageInfo {
+	info := crap.ContractCoverageInfo{
+		Percentage: report.ContractCoverage.Percentage,
+	}
+	if report.ContractCoverage.TotalContractual == 0 {
+		minConf, maxConf := 100, 0
+		effectCount := 0
+		for _, e := range report.AmbiguousEffects {
+			if e.Classification != nil {
+				effectCount++
+				if e.Classification.Confidence < minConf {
+					minConf = e.Classification.Confidence
+				}
+				if e.Classification.Confidence > maxConf {
+					maxConf = e.Classification.Confidence
+				}
+			}
+		}
+		if effectCount > 0 {
+			info.Reason = "all_effects_ambiguous"
+			info.MinConfidence = minConf
+			info.MaxConfidence = maxConf
+		} else {
+			info.Reason = "no_effects_detected"
+		}
+	}
+	return info
+}
+
+// buildCoverageMap runs the quality pipeline on each package path and
+// returns a coverage map and list of SSA-degraded package paths. The
+// map keys are "shortPkg:qualifiedName" and values are
+// ContractCoverageInfo computed via computeCoverageReason. When
+// multiple reports exist for the same function, the entry with the
+// higher Percentage wins. Reports with empty TargetFunction.Function
+// (degraded) are skipped.
+func buildCoverageMap(
+	pkgPaths []string,
+	moduleDir string,
+	gazeConfig *config.GazeConfig,
+	stderr io.Writer,
+	deps ...contractCoverageDeps,
+) (map[string]crap.ContractCoverageInfo, []string) {
+	coverageMap := make(map[string]crap.ContractCoverageInfo)
+	var degradedPkgs []string
+
+	for _, pkgPath := range pkgPaths {
+		var ccDeps contractCoverageDeps
+		if len(deps) > 0 {
+			ccDeps = deps[0]
+		}
+		reports, degradedPkg := analyzePackageCoverage(pkgPath, moduleDir, gazeConfig, stderr, ccDeps)
+		if degradedPkg != "" {
+			degradedPkgs = append(degradedPkgs, degradedPkg)
+		}
+		for _, report := range reports {
+			if report.TargetFunction.Function == "" {
+				continue
+			}
+			shortPkg := extractShortPkgName(report.TargetFunction.Package)
+			key := shortPkg + ":" + report.TargetFunction.QualifiedName()
+
+			info := computeCoverageReason(report)
+			if existing, ok := coverageMap[key]; !ok || info.Percentage > existing.Percentage {
+				coverageMap[key] = info
+			}
+		}
+	}
+	return coverageMap, degradedPkgs
 }
 
 // contractCoverageDeps holds injectable dependencies for
@@ -253,7 +290,7 @@ func analyzePackageCoverage(
 		d.classifyResults = classifyResults
 	}
 	if d.loadTestPkg == nil {
-		d.loadTestPkg = loadTestPackage
+		d.loadTestPkg = LoadTestPackage
 	}
 	if d.assess == nil {
 		d.assess = quality.Assess
@@ -333,9 +370,9 @@ func classifyResults(
 	return classify.Classify(results, clOpts)
 }
 
-// loadTestPackage loads a Go package with test files for quality
+// LoadTestPackage loads a Go package with test files for quality
 // assessment.
-func loadTestPackage(pkgPath string) (*packages.Package, error) {
+func LoadTestPackage(pkgPath string) (*packages.Package, error) {
 	cfg := &packages.Config{
 		Mode: packages.NeedName |
 			packages.NeedFiles |
@@ -384,15 +421,13 @@ func loadTestPackage(pkgPath string) (*packages.Package, error) {
 	return nil, fmt.Errorf("no test files found for %q", pkgPath)
 }
 
-// loadGazeConfigBestEffort loads the GazeConfig from the module root,
-// falling back to the default config on any error.
-func loadGazeConfigBestEffort(moduleDir string) *config.GazeConfig {
-	cfgPath := filepath.Join(moduleDir, ".gaze.yaml")
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return config.DefaultConfig()
+// firstAIMapper extracts the first non-nil AIMapperFunc from a
+// variadic slice, returning nil if none is provided.
+func firstAIMapper(fns []quality.AIMapperFunc) quality.AIMapperFunc {
+	if len(fns) > 0 && fns[0] != nil {
+		return fns[0]
 	}
-	return cfg
+	return nil
 }
 
 // extractShortPkgName returns the short package name from a full

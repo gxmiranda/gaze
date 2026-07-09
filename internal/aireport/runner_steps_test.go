@@ -16,15 +16,6 @@ import (
 	"github.com/unbound-force/gaze/internal/taxonomy"
 )
 
-// TestLoadGazeConfigBestEffort_AlwaysNonNil verifies that the function always
-// returns a non-nil config, even in a directory with no .gaze.yaml.
-func TestLoadGazeConfigBestEffort_AlwaysNonNil(t *testing.T) {
-	cfg := loadGazeConfigBestEffort(".")
-	if cfg == nil {
-		t.Error("expected non-nil GazeConfig from loadGazeConfigBestEffort")
-	}
-}
-
 // TestRunCRAPStep_RealPackage verifies that runCRAPStep successfully runs on
 // a real package and returns a non-nil JSON payload.
 // Guarded by testing.Short() — spawns the Go analysis pipeline.
@@ -540,36 +531,5 @@ func TestRunClassifyStep_DI_ClassifyErrorSkip(t *testing.T) {
 	// Only fake/good's results should contribute.
 	if result.Contractual != 1 {
 		t.Errorf("expected Contractual=1 (from good only), got %d", result.Contractual)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Task 2.5: Unit tests for loadTestPackageForQuality
-// ---------------------------------------------------------------------------
-
-func TestLoadTestPackageForQuality_WithTests(t *testing.T) {
-	pkg, err := loadTestPackageForQuality("github.com/unbound-force/gaze/internal/quality/testdata/src/welltested")
-	if err != nil {
-		t.Fatalf("expected success for package with tests, got error: %v", err)
-	}
-	if pkg == nil {
-		t.Fatal("expected non-nil package")
-	}
-}
-
-func TestLoadTestPackageForQuality_WithoutTests(t *testing.T) {
-	_, err := loadTestPackageForQuality("github.com/unbound-force/gaze/internal/analysis/testdata/src/returns")
-	if err == nil {
-		t.Fatal("expected error for package without tests")
-	}
-	if !strings.Contains(err.Error(), "no test package found") {
-		t.Errorf("expected 'no test package found' in error, got: %v", err)
-	}
-}
-
-func TestLoadTestPackageForQuality_NonExistent(t *testing.T) {
-	_, err := loadTestPackageForQuality("github.com/nonexistent/does-not-exist")
-	if err == nil {
-		t.Fatal("expected error for non-existent package")
 	}
 }

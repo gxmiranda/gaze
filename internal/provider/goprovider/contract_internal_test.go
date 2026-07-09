@@ -318,11 +318,296 @@ func TestAnalyzePackageCoverage_DI_SSADegraded(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// loadTestPackage tests (Task 1.3)
+// computeCoverageReason tests (Task 2.1)
+// ---------------------------------------------------------------------------
+
+func TestComputeCoverageReason_WithContractualEffects(t *testing.T) {
+	report := taxonomy.QualityReport{
+		ContractCoverage: taxonomy.ContractCoverage{
+			Percentage:       75.0,
+			TotalContractual: 3,
+		},
+	}
+	info := computeCoverageReason(report)
+	if info.Percentage != 75.0 {
+		t.Errorf("Percentage = %.1f, want 75.0", info.Percentage)
+	}
+	if info.Reason != "" {
+		t.Errorf("Reason = %q, want empty string", info.Reason)
+	}
+}
+
+func TestComputeCoverageReason_AllAmbiguous(t *testing.T) {
+	report := taxonomy.QualityReport{
+		ContractCoverage: taxonomy.ContractCoverage{
+			TotalContractual: 0,
+		},
+		AmbiguousEffects: []taxonomy.SideEffect{
+			{Classification: &taxonomy.Classification{Confidence: 78}},
+			{Classification: &taxonomy.Classification{Confidence: 79}},
+		},
+	}
+	info := computeCoverageReason(report)
+	if info.Reason != "all_effects_ambiguous" {
+		t.Errorf("Reason = %q, want %q", info.Reason, "all_effects_ambiguous")
+	}
+	if info.MinConfidence != 78 {
+		t.Errorf("MinConfidence = %d, want 78", info.MinConfidence)
+	}
+	if info.MaxConfidence != 79 {
+		t.Errorf("MaxConfidence = %d, want 79", info.MaxConfidence)
+	}
+}
+
+func TestComputeCoverageReason_NoEffects(t *testing.T) {
+	report := taxonomy.QualityReport{
+		ContractCoverage: taxonomy.ContractCoverage{
+			TotalContractual: 0,
+		},
+		AmbiguousEffects: []taxonomy.SideEffect{},
+	}
+	info := computeCoverageReason(report)
+	if info.Reason != "no_effects_detected" {
+		t.Errorf("Reason = %q, want %q", info.Reason, "no_effects_detected")
+	}
+}
+
+func TestComputeCoverageReason_NilClassification(t *testing.T) {
+	report := taxonomy.QualityReport{
+		ContractCoverage: taxonomy.ContractCoverage{
+			TotalContractual: 0,
+		},
+		AmbiguousEffects: []taxonomy.SideEffect{
+			{Classification: nil},
+			{Classification: nil},
+		},
+	}
+	info := computeCoverageReason(report)
+	// Nil classifications are skipped; with no valid entries,
+	// effectCount == 0, so reason should be "no_effects_detected".
+	if info.Reason != "no_effects_detected" {
+		t.Errorf("Reason = %q, want %q", info.Reason, "no_effects_detected")
+	}
+	if info.MinConfidence != 0 {
+		t.Errorf("MinConfidence = %d, want 0", info.MinConfidence)
+	}
+	if info.MaxConfidence != 0 {
+		t.Errorf("MaxConfidence = %d, want 0", info.MaxConfidence)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// buildEffectsSet tests (Task 2.2)
+// ---------------------------------------------------------------------------
+
+func TestBuildEffectsSet_WithEffects(t *testing.T) {
+	fakeFn := func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		return []taxonomy.AnalysisResult{syntheticResult()}, nil
+	}
+	got := buildEffectsSet([]string{"example.com/pkg"}, fakeFn)
+	if !got["pkg:DoWork"] {
+		t.Errorf("expected key %q in effects set, got %v", "pkg:DoWork", got)
+	}
+}
+
+func TestBuildEffectsSet_NoEffects(t *testing.T) {
+	fakeFn := func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		return []taxonomy.AnalysisResult{
+			{
+				Target: taxonomy.FunctionTarget{
+					Package:  "example.com/pkg",
+					Function: "NoOp",
+				},
+				SideEffects: []taxonomy.SideEffect{}, // no effects
+			},
+		}, nil
+	}
+	got := buildEffectsSet([]string{"example.com/pkg"}, fakeFn)
+	if len(got) != 0 {
+		t.Errorf("expected empty effects set, got %v", got)
+	}
+}
+
+func TestBuildEffectsSet_AnalysisError(t *testing.T) {
+	fakeFn := func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		return nil, errors.New("analysis failed")
+	}
+	got := buildEffectsSet([]string{"example.com/broken"}, fakeFn)
+	if len(got) != 0 {
+		t.Errorf("expected empty effects set on error, got %v", got)
+	}
+}
+
+func TestBuildEffectsSet_EmptyPaths(t *testing.T) {
+	fakeFn := func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
+		t.Fatal("loadAndAnalyze should not be called with empty paths")
+		return nil, nil
+	}
+	got := buildEffectsSet([]string{}, fakeFn)
+	if len(got) != 0 {
+		t.Errorf("expected empty effects set for empty paths, got %v", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// buildCoverageMap tests (Task 2.3)
+// ---------------------------------------------------------------------------
+
+func TestBuildCoverageMap_Success(t *testing.T) {
+	var stderr bytes.Buffer
+	deps := successDeps()
+	coverageMap, degradedPkgs := buildCoverageMap(
+		[]string{"example.com/pkg"}, ".", config.DefaultConfig(), &stderr, deps,
+	)
+	if len(coverageMap) != 1 {
+		t.Fatalf("expected 1 entry in coverage map, got %d", len(coverageMap))
+	}
+	info, ok := coverageMap["pkg:DoWork"]
+	if !ok {
+		t.Fatal("expected key \"pkg:DoWork\" in coverage map")
+	}
+	if info.Percentage != 75.0 {
+		t.Errorf("Percentage = %.1f, want 75.0", info.Percentage)
+	}
+	if len(degradedPkgs) != 0 {
+		t.Errorf("expected no degraded packages, got %v", degradedPkgs)
+	}
+}
+
+func TestBuildCoverageMap_DegradedReport(t *testing.T) {
+	deps := successDeps()
+	deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+		return []taxonomy.QualityReport{
+			{
+				TestFunction: "TestDoWork",
+				TargetFunction: taxonomy.FunctionTarget{
+					Package:  "example.com/pkg",
+					Function: "", // degraded — empty function name
+				},
+				ContractCoverage: taxonomy.ContractCoverage{
+					Percentage: 50.0,
+				},
+			},
+		}, &taxonomy.PackageSummary{TotalTests: 1}, nil
+	}
+	var stderr bytes.Buffer
+	coverageMap, _ := buildCoverageMap(
+		[]string{"example.com/pkg"}, ".", config.DefaultConfig(), &stderr, deps,
+	)
+	if len(coverageMap) != 0 {
+		t.Errorf("expected empty coverage map for degraded report, got %d entries", len(coverageMap))
+	}
+}
+
+func TestBuildCoverageMap_SSADegradation(t *testing.T) {
+	deps := successDeps()
+	deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+		reports := []taxonomy.QualityReport{
+			{
+				TestFunction: "TestDoWork",
+				TargetFunction: taxonomy.FunctionTarget{
+					Package:  "example.com/pkg",
+					Function: "DoWork",
+				},
+			},
+		}
+		summary := &taxonomy.PackageSummary{
+			TotalTests:  1,
+			SSADegraded: true,
+		}
+		return reports, summary, nil
+	}
+	var stderr bytes.Buffer
+	_, degradedPkgs := buildCoverageMap(
+		[]string{"example.com/pkg"}, ".", config.DefaultConfig(), &stderr, deps,
+	)
+	if len(degradedPkgs) != 1 || degradedPkgs[0] != "example.com/pkg" {
+		t.Errorf("expected degraded packages [\"example.com/pkg\"], got %v", degradedPkgs)
+	}
+}
+
+func TestBuildCoverageMap_HigherCoverageWins(t *testing.T) {
+	// Helper that builds deps returning two reports for the same function
+	// in the given percentage order.
+	makeDeps := func(first, second float64) contractCoverageDeps {
+		deps := successDeps()
+		deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+			return []taxonomy.QualityReport{
+				{
+					TestFunction: "TestDoWork_A",
+					TargetFunction: taxonomy.FunctionTarget{
+						Package:  "example.com/pkg",
+						Function: "DoWork",
+					},
+					ContractCoverage: taxonomy.ContractCoverage{
+						Percentage:       first,
+						TotalContractual: 2,
+					},
+				},
+				{
+					TestFunction: "TestDoWork_B",
+					TargetFunction: taxonomy.FunctionTarget{
+						Package:  "example.com/pkg",
+						Function: "DoWork",
+					},
+					ContractCoverage: taxonomy.ContractCoverage{
+						Percentage:       second,
+						TotalContractual: 2,
+					},
+				},
+			}, &taxonomy.PackageSummary{TotalTests: 2}, nil
+		}
+		return deps
+	}
+
+	// Order 1: 50 then 80 → 80 wins.
+	var stderr bytes.Buffer
+	coverageMap, _ := buildCoverageMap(
+		[]string{"example.com/pkg"}, ".", config.DefaultConfig(), &stderr,
+		makeDeps(50.0, 80.0),
+	)
+	info, ok := coverageMap["pkg:DoWork"]
+	if !ok {
+		t.Fatal("expected key \"pkg:DoWork\" in coverage map")
+	}
+	if info.Percentage != 80.0 {
+		t.Errorf("order 50→80: Percentage = %.1f, want 80.0", info.Percentage)
+	}
+
+	// Order 2: 80 then 50 → 80 still wins.
+	stderr.Reset()
+	coverageMap, _ = buildCoverageMap(
+		[]string{"example.com/pkg"}, ".", config.DefaultConfig(), &stderr,
+		makeDeps(80.0, 50.0),
+	)
+	info, ok = coverageMap["pkg:DoWork"]
+	if !ok {
+		t.Fatal("expected key \"pkg:DoWork\" in coverage map")
+	}
+	if info.Percentage != 80.0 {
+		t.Errorf("order 80→50: Percentage = %.1f, want 80.0", info.Percentage)
+	}
+}
+
+func TestBuildCoverageMap_EmptyPaths(t *testing.T) {
+	var stderr bytes.Buffer
+	coverageMap, degradedPkgs := buildCoverageMap(
+		[]string{}, ".", config.DefaultConfig(), &stderr,
+	)
+	if len(coverageMap) != 0 {
+		t.Errorf("expected empty coverage map for empty paths, got %d entries", len(coverageMap))
+	}
+	if len(degradedPkgs) != 0 {
+		t.Errorf("expected no degraded packages, got %v", degradedPkgs)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LoadTestPackage tests (Task 1.3)
 // ---------------------------------------------------------------------------
 
 func TestLoadTestPackage_WithTests(t *testing.T) {
-	pkg, err := loadTestPackage("github.com/unbound-force/gaze/internal/quality/testdata/src/welltested")
+	pkg, err := LoadTestPackage("github.com/unbound-force/gaze/internal/quality/testdata/src/welltested")
 	if err != nil {
 		t.Fatalf("expected no error for package with tests, got: %v", err)
 	}
@@ -332,7 +617,7 @@ func TestLoadTestPackage_WithTests(t *testing.T) {
 }
 
 func TestLoadTestPackage_WithoutTests(t *testing.T) {
-	_, err := loadTestPackage("github.com/unbound-force/gaze/internal/analysis/testdata/src/returns")
+	_, err := LoadTestPackage("github.com/unbound-force/gaze/internal/analysis/testdata/src/returns")
 	if err == nil {
 		t.Fatal("expected error for package without test files")
 	}
@@ -342,7 +627,7 @@ func TestLoadTestPackage_WithoutTests(t *testing.T) {
 }
 
 func TestLoadTestPackage_NonExistent(t *testing.T) {
-	_, err := loadTestPackage("github.com/nonexistent/does-not-exist")
+	_, err := LoadTestPackage("github.com/nonexistent/does-not-exist")
 	if err == nil {
 		t.Fatal("expected error for non-existent package")
 	}
