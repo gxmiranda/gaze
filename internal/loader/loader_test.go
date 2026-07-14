@@ -205,6 +205,44 @@ func TestResolvePackagePaths_InvalidPattern(t *testing.T) {
 	}
 }
 
+func TestResolvePackagePaths_MixedValidAndInvalid(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping slow test: loads packages via go/packages")
+	}
+
+	root := findModuleRoot(t)
+	var buf bytes.Buffer
+	paths, err := loader.ResolvePackagePaths(
+		[]string{
+			"github.com/unbound-force/gaze/internal/loader",
+			"github.com/nonexistent/does/not/exist",
+		}, root, &buf,
+	)
+	if err != nil {
+		t.Fatalf("ResolvePackagePaths returned unexpected error: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected 1 valid path, got %d: %v", len(paths), paths)
+	}
+	if paths[0] != "github.com/unbound-force/gaze/internal/loader" {
+		t.Errorf("expected valid path %q, got %q",
+			"github.com/unbound-force/gaze/internal/loader", paths[0])
+	}
+
+	// Verify warning was emitted for the invalid pattern only.
+	stderr := buf.String()
+	if !strings.Contains(stderr, "warning: skipping") {
+		t.Errorf("expected warning prefix in stderr, got %q", stderr)
+	}
+	if !strings.Contains(stderr, "github.com/nonexistent/does/not/exist") {
+		t.Errorf("expected invalid package path in stderr warning, got %q", stderr)
+	}
+	// The valid package should not appear in warnings.
+	if strings.Contains(stderr, "github.com/unbound-force/gaze/internal/loader") {
+		t.Errorf("valid package should not appear in warnings, got %q", stderr)
+	}
+}
+
 func TestIsMainPkg_Library(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow test: loads package via go/packages")
