@@ -183,9 +183,7 @@ func buildComparisonSummary(result *ComparisonResult, opts CompareOptions) Compa
 	}
 
 	for _, s := range result.NewFunctions {
-		crapViolation := s.CRAP > opts.NewFunctionThreshold
-		gazeViolation := s.GazeCRAP != nil && *s.GazeCRAP > opts.NewFunctionGazeCRAPThreshold
-		if crapViolation || gazeViolation {
+		if isNewFunctionViolation(s, opts.NewFunctionThreshold, opts.NewFunctionGazeCRAPThreshold) {
 			summary.NewViolations++
 		} else {
 			summary.NewFunctions++
@@ -197,4 +195,16 @@ func buildComparisonSummary(result *ComparisonResult, opts CompareOptions) Compa
 	summary.Passed = summary.Regressions == 0 && summary.NewViolations == 0
 
 	return summary
+}
+
+// isNewFunctionViolation reports whether a new function (not present
+// in the baseline) exceeds either the CRAP threshold or the GazeCRAP
+// threshold. This centralizes the violation check used by summary
+// counting (buildComparisonSummary), JSON output (WriteComparisonJSON),
+// and text output (writeComparisonNewFunctions).
+func isNewFunctionViolation(s Score, crapThreshold, gazeCRAPThreshold float64) bool {
+	if s.CRAP > crapThreshold {
+		return true
+	}
+	return s.GazeCRAP != nil && *s.GazeCRAP > gazeCRAPThreshold
 }

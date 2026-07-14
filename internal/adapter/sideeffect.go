@@ -225,4 +225,3 @@ func convertAnalysisResults(funcs []protocol.AnalyzedFunction, stderr io.Writer)
 	}
 	return results
 }
-

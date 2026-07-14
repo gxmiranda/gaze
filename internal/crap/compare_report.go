@@ -116,10 +116,7 @@ func WriteComparisonJSON(w io.Writer, result *ComparisonResult) error {
 	newFuncs := make([]newFunctionJSON, 0, len(result.NewFunctions))
 	for _, nf := range result.NewFunctions {
 		status := StatusNew
-		crapViolation := nf.CRAP > result.Summary.NewFunctionThreshold
-		gazeViolation := nf.GazeCRAP != nil &&
-			*nf.GazeCRAP > result.Summary.NewFunctionGazeCRAPThreshold
-		if crapViolation || gazeViolation {
+		if isNewFunctionViolation(nf, result.Summary.NewFunctionThreshold, result.Summary.NewFunctionGazeCRAPThreshold) {
 			status = StatusNewViolation
 		}
 		newFuncs = append(newFuncs, newFunctionJSON{
@@ -271,9 +268,7 @@ func writeComparisonNewFunctions(w io.Writer, newFuncs []Score, crapThreshold, g
 	// Separate violations from informational new functions.
 	var violations, informational []Score
 	for _, s := range newFuncs {
-		crapViolation := s.CRAP > crapThreshold
-		gazeViolation := s.GazeCRAP != nil && *s.GazeCRAP > gazeCRAPThreshold
-		if crapViolation || gazeViolation {
+		if isNewFunctionViolation(s, crapThreshold, gazeCRAPThreshold) {
 			violations = append(violations, s)
 		} else {
 			informational = append(informational, s)

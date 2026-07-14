@@ -1298,3 +1298,69 @@ func TestSC003_NilGazeCRAP_CRAPAboveThreshold(t *testing.T) {
 		t.Error("Summary.Passed = true, want false")
 	}
 }
+
+// --- isNewFunctionViolation helper tests ---
+
+func TestIsNewFunctionViolation(t *testing.T) {
+	gazeCRAP := func(v float64) *float64 { return &v }
+
+	tests := []struct {
+		name              string
+		score             Score
+		crapThreshold     float64
+		gazeCRAPThreshold float64
+		want              bool
+	}{
+		{
+			name:              "CRAP above threshold, no GazeCRAP",
+			score:             Score{CRAP: 35.0, GazeCRAP: nil},
+			crapThreshold:     30.0,
+			gazeCRAPThreshold: 30.0,
+			want:              true,
+		},
+		{
+			name:              "CRAP below threshold, no GazeCRAP",
+			score:             Score{CRAP: 10.0, GazeCRAP: nil},
+			crapThreshold:     30.0,
+			gazeCRAPThreshold: 30.0,
+			want:              false,
+		},
+		{
+			name:              "CRAP below threshold, GazeCRAP above threshold",
+			score:             Score{CRAP: 10.0, GazeCRAP: gazeCRAP(40.0)},
+			crapThreshold:     30.0,
+			gazeCRAPThreshold: 30.0,
+			want:              true,
+		},
+		{
+			name:              "CRAP below threshold, GazeCRAP below threshold",
+			score:             Score{CRAP: 10.0, GazeCRAP: gazeCRAP(5.0)},
+			crapThreshold:     30.0,
+			gazeCRAPThreshold: 30.0,
+			want:              false,
+		},
+		{
+			name:              "both thresholds exceeded",
+			score:             Score{CRAP: 35.0, GazeCRAP: gazeCRAP(40.0)},
+			crapThreshold:     30.0,
+			gazeCRAPThreshold: 30.0,
+			want:              true,
+		},
+		{
+			name:              "exact threshold boundary, not a violation",
+			score:             Score{CRAP: 30.0, GazeCRAP: gazeCRAP(30.0)},
+			crapThreshold:     30.0,
+			gazeCRAPThreshold: 30.0,
+			want:              false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isNewFunctionViolation(tt.score, tt.crapThreshold, tt.gazeCRAPThreshold)
+			if got != tt.want {
+				t.Errorf("isNewFunctionViolation() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
