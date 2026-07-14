@@ -51,7 +51,14 @@ func resolveQualityDeps(deps []qualityPipelineDeps) qualityPipelineDeps {
 		d = deps[0]
 	}
 	if d.resolvePackagePaths == nil {
-		d.resolvePackagePaths = loader.ResolvePackagePaths
+		// Wrap loader.ResolvePackagePaths to match the DI function
+		// type (2-param). Warnings are discarded (nil stderr) to
+		// avoid cascading the io.Writer parameter through the DI
+		// type and all test fakes. Direct callers in cmd/gaze and
+		// goprovider pass stderr for user-facing warning output.
+		d.resolvePackagePaths = func(patterns []string, moduleDir string) ([]string, error) {
+			return loader.ResolvePackagePaths(patterns, moduleDir, nil)
+		}
 	}
 	if d.loadAndAnalyze == nil {
 		d.loadAndAnalyze = analysis.LoadAndAnalyze
