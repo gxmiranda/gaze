@@ -697,8 +697,11 @@ func TestP1_CustomResponseWriter(t *testing.T) {
 func TestP1_MapMutation(t *testing.T) {
 	result := analyzeFunc(t, "p1effects", "WriteToMap")
 
-	if !hasEffect(result.SideEffects, taxonomy.MapMutation) {
-		t.Error("expected MapMutation for WriteToMap")
+	if count := countEffects(result.SideEffects, taxonomy.MapMutation); count != 1 {
+		t.Fatalf("expected exactly 1 MapMutation for WriteToMap, got %d", count)
+	}
+	if e := effectWithTarget(result.SideEffects, taxonomy.MapMutation, "m"); e == nil {
+		t.Error("expected MapMutation with target \"m\"")
 	}
 }
 
@@ -713,8 +716,11 @@ func TestP1_MapMutation_ReadOnly(t *testing.T) {
 func TestP1_SliceMutation(t *testing.T) {
 	result := analyzeFunc(t, "p1effects", "WriteToSlice")
 
-	if !hasEffect(result.SideEffects, taxonomy.SliceMutation) {
-		t.Error("expected SliceMutation for WriteToSlice")
+	if count := countEffects(result.SideEffects, taxonomy.SliceMutation); count != 1 {
+		t.Fatalf("expected exactly 1 SliceMutation for WriteToSlice, got %d", count)
+	}
+	if e := effectWithTarget(result.SideEffects, taxonomy.SliceMutation, "s"); e == nil {
+		t.Error("expected SliceMutation with target \"s\"")
 	}
 }
 
