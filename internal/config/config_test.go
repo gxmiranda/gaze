@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -347,6 +348,73 @@ func TestSC007_ConfigValidation_NegativeGazeCRAPThreshold(t *testing.T) {
 	want := "baseline.new_function_gaze_crap_threshold must be > 0"
 	if !strings.Contains(err.Error(), want) {
 		t.Errorf("error = %q, want to contain %q", err, want)
+	}
+}
+
+// --- LoadFromDir tests ---
+
+func TestLoadFromDir_ValidConfig(t *testing.T) {
+	dir := t.TempDir()
+	yamlContent := []byte(`classification:
+  thresholds:
+    contractual: 90
+    incidental: 40
+`)
+	if err := os.WriteFile(filepath.Join(dir, ".gaze.yaml"), yamlContent, 0o644); err != nil {
+		t.Fatalf("writing .gaze.yaml: %v", err)
+	}
+
+	cfg := LoadFromDir(dir)
+	if cfg == nil {
+		t.Fatal("LoadFromDir returned nil")
+	}
+	if cfg.Classification.Thresholds.Contractual != 90 {
+		t.Errorf("contractual = %d, want 90",
+			cfg.Classification.Thresholds.Contractual)
+	}
+	if cfg.Classification.Thresholds.Incidental != 40 {
+		t.Errorf("incidental = %d, want 40",
+			cfg.Classification.Thresholds.Incidental)
+	}
+}
+
+func TestLoadFromDir_MissingFile(t *testing.T) {
+	dir := t.TempDir()
+
+	cfg := LoadFromDir(dir)
+	if cfg == nil {
+		t.Fatal("LoadFromDir returned nil for missing file")
+	}
+	// Should return defaults when no .gaze.yaml exists.
+	if cfg.Classification.Thresholds.Contractual != 80 {
+		t.Errorf("contractual = %d, want default 80",
+			cfg.Classification.Thresholds.Contractual)
+	}
+	if cfg.Classification.Thresholds.Incidental != 50 {
+		t.Errorf("incidental = %d, want default 50",
+			cfg.Classification.Thresholds.Incidental)
+	}
+}
+
+func TestLoadFromDir_InvalidYAML(t *testing.T) {
+	dir := t.TempDir()
+	badContent := []byte(`{{{not valid yaml at all!!!`)
+	if err := os.WriteFile(filepath.Join(dir, ".gaze.yaml"), badContent, 0o644); err != nil {
+		t.Fatalf("writing .gaze.yaml: %v", err)
+	}
+
+	cfg := LoadFromDir(dir)
+	if cfg == nil {
+		t.Fatal("LoadFromDir returned nil for invalid YAML")
+	}
+	// Should fall back to defaults when YAML is malformed.
+	if cfg.Classification.Thresholds.Contractual != 80 {
+		t.Errorf("contractual = %d, want default 80",
+			cfg.Classification.Thresholds.Contractual)
+	}
+	if cfg.Classification.Thresholds.Incidental != 50 {
+		t.Errorf("incidental = %d, want default 50",
+			cfg.Classification.Thresholds.Incidental)
 	}
 }
 

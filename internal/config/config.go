@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -140,6 +141,20 @@ func DefaultConfig() *GazeConfig {
 			},
 		},
 	}
+}
+
+// LoadFromDir loads the GazeConfig from the given module directory by
+// looking for .gaze.yaml. This is a best-effort loader: if the config
+// file is missing, malformed, or fails validation, it silently returns
+// DefaultConfig(). Use this when callers treat config as an
+// optimization hint rather than a hard requirement.
+func LoadFromDir(moduleDir string) *GazeConfig {
+	cfgPath := filepath.Join(moduleDir, ".gaze.yaml")
+	cfg, err := Load(cfgPath)
+	if err != nil {
+		return DefaultConfig()
+	}
+	return cfg
 }
 
 // Load reads a .gaze.yaml configuration file from the given path.

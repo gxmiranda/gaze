@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
 	"golang.org/x/tools/go/packages"
 
@@ -67,7 +66,7 @@ func resolveQualityDeps(deps []qualityPipelineDeps) qualityPipelineDeps {
 		d.classifyResults = runClassifyResults
 	}
 	if d.loadTestPkg == nil {
-		d.loadTestPkg = loadTestPackageForQuality
+		d.loadTestPkg = goprovider.LoadTestPackage
 	}
 	if d.assess == nil {
 		d.assess = quality.Assess
@@ -76,7 +75,7 @@ func resolveQualityDeps(deps []qualityPipelineDeps) qualityPipelineDeps {
 		d.resolveModulePkgs = resolveModulePackages
 	}
 	if d.loadConfig == nil {
-		d.loadConfig = loadGazeConfigBestEffort
+		d.loadConfig = config.LoadFromDir
 	}
 	return d
 }
@@ -301,7 +300,7 @@ func runClassifyStep(patterns []string, moduleDir string, deps ...qualityPipelin
 
 // runDocscanStep runs the documentation scanner and returns the JSON output.
 func runDocscanStep(moduleDir string) (json.RawMessage, error) {
-	cfg := loadGazeConfigBestEffort(moduleDir)
+	cfg := config.LoadFromDir(moduleDir)
 	scanOpts := docscan.ScanOptions{Config: cfg}
 
 	docs, err := docscan.Scan(moduleDir, scanOpts)
@@ -356,44 +355,4 @@ func resolveModulePackages(moduleDir string) []*packages.Package {
 		return nil
 	}
 	return modResult.Packages
-}
-
-// loadGazeConfigBestEffort loads the GazeConfig from the module root,
-// falling back to the default config on any error.
-func loadGazeConfigBestEffort(moduleDir string) *config.GazeConfig {
-	cfgPath := filepath.Join(moduleDir, ".gaze.yaml")
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		return config.DefaultConfig()
-	}
-	return cfg
-}
-
-// loadTestPackageForQuality loads a Go package with test files included.
-func loadTestPackageForQuality(pkgPath string) (*packages.Package, error) {
-	cfg := &packages.Config{
-		Mode: packages.NeedName |
-			packages.NeedFiles |
-			packages.NeedCompiledGoFiles |
-			packages.NeedImports |
-			packages.NeedDeps |
-			packages.NeedTypes |
-			packages.NeedSyntax |
-			packages.NeedTypesInfo |
-			packages.NeedTypesSizes,
-		Tests: true,
-	}
-	pkgs, err := packages.Load(cfg, pkgPath)
-	if err != nil {
-		return nil, fmt.Errorf("loading test package: %w", err)
-	}
-	if len(pkgs) == 0 {
-		return nil, fmt.Errorf("no packages found for %q", pkgPath)
-	}
-	for _, pkg := range pkgs {
-		if quality.HasTestSyntax(pkg) {
-			return pkg, nil
-		}
-	}
-	return nil, fmt.Errorf("no test package found for %q", pkgPath)
 }
