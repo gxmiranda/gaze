@@ -58,6 +58,9 @@ type RunnerOptions struct {
 	// Empty string means "generate internally" (default behavior, FR-003).
 	CoverProfile string
 
+	// TestShort passes -short to the internal go test invocation when true.
+	TestShort bool
+
 	// AnalyzeFunc overrides the analysis pipeline for testing.
 	// When nil, the production pipeline is called.
 	AnalyzeFunc func(patterns []string, moduleDir string) (*ReportPayload, error)
@@ -154,7 +157,7 @@ func Run(opts RunnerOptions) error {
 	analyzeFunc := opts.AnalyzeFunc
 	if analyzeFunc == nil {
 		analyzeFunc = func(patterns []string, moduleDir string) (*ReportPayload, error) {
-			return runProductionPipeline(patterns, moduleDir, opts.CoverProfile, opts.Stderr, pipelineStepFuncs{})
+			return runProductionPipeline(patterns, moduleDir, opts.CoverProfile, opts.TestShort, opts.Stderr, pipelineStepFuncs{})
 		}
 	}
 
@@ -241,7 +244,7 @@ func errString(err error) *string {
 // (partial failures, error capture, payload assembly) without running
 // real analysis.
 type pipelineStepFuncs struct {
-	crapStep     func([]string, string, string, io.Writer, crap.ContractCoverageProvider) (*crapStepResult, error)
+	crapStep     func([]string, string, string, io.Writer, crap.ContractCoverageProvider, bool) (*crapStepResult, error)
 	qualityStep  func([]string, string, io.Writer, ...qualityPipelineDeps) (*qualityStepResult, error)
 	classifyStep func([]string, string, ...qualityPipelineDeps) (*classifyStepResult, error)
 	docscanStep  func(string) (json.RawMessage, error)
@@ -256,7 +259,7 @@ type pipelineStepFuncs struct {
 //
 // The steps parameter allows injection of fake step functions for testing.
 // Pass pipelineStepFuncs{} (zero value) for production behavior.
-func runProductionPipeline(patterns []string, moduleDir string, coverProfile string, stderr io.Writer, steps pipelineStepFuncs) (*ReportPayload, error) {
+func runProductionPipeline(patterns []string, moduleDir string, coverProfile string, testShort bool, stderr io.Writer, steps pipelineStepFuncs) (*ReportPayload, error) {
 	// Default nil step functions to real implementations.
 	if steps.crapStep == nil {
 		steps.crapStep = runCRAPStep
@@ -287,7 +290,7 @@ func runProductionPipeline(patterns []string, moduleDir string, coverProfile str
 
 	// Step 1: CRAP analysis.
 	_, _ = fmt.Fprintln(stderr, "Analyzing packages... (CRAP)")
-	if crapRes, err := steps.crapStep(patterns, moduleDir, coverProfile, stderr, ccProvider); err != nil {
+	if crapRes, err := steps.crapStep(patterns, moduleDir, coverProfile, stderr, ccProvider, testShort); err != nil {
 		payload.Errors.CRAP = errString(err)
 	} else {
 		payload.CRAP = crapRes.JSON

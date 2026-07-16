@@ -117,3 +117,82 @@ func TestRecoverPartialProfile_NilStderr(t *testing.T) {
 		t.Errorf("expected profile path %q, got %q", profilePath, got)
 	}
 }
+
+// --- buildGoTestCmd Tests ---
+
+func TestBuildGoTestCmd_ShortTrue(t *testing.T) {
+	// Verify that buildGoTestCmd includes -short in args when
+	// short=true.
+	cmd := buildGoTestCmd("/tmp/cover.out", "/some/dir", []string{"./..."}, true)
+
+	found := false
+	for _, arg := range cmd.Args {
+		if arg == "-short" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected -short in cmd.Args when short=true, got %v", cmd.Args)
+	}
+}
+
+func TestBuildGoTestCmd_ShortFalse(t *testing.T) {
+	// Verify that buildGoTestCmd omits -short from args when
+	// short=false.
+	cmd := buildGoTestCmd("/tmp/cover.out", "/some/dir", []string{"./..."}, false)
+
+	for _, arg := range cmd.Args {
+		if arg == "-short" {
+			t.Errorf("expected no -short in cmd.Args when short=false, got %v", cmd.Args)
+			break
+		}
+	}
+}
+
+func TestBuildGoTestCmd_EnvVar(t *testing.T) {
+	// Verify that buildGoTestCmd sets GAZE_COVERAGE_RUN=1 in the
+	// command's environment.
+	cmd := buildGoTestCmd("/tmp/cover.out", "/some/dir", []string{"./..."}, false)
+
+	found := false
+	for _, e := range cmd.Env {
+		if e == "GAZE_COVERAGE_RUN=1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected GAZE_COVERAGE_RUN=1 in cmd.Env")
+	}
+}
+
+func TestBuildGoTestCmd_EnvVarDeduplication(t *testing.T) {
+	// Verify that when GAZE_COVERAGE_RUN is already in the
+	// environment, buildGoTestCmd produces exactly one entry.
+	t.Setenv("GAZE_COVERAGE_RUN", "stale")
+
+	cmd := buildGoTestCmd("/tmp/cover.out", "/some/dir", []string{"./..."}, false)
+
+	count := 0
+	for _, e := range cmd.Env {
+		if strings.HasPrefix(e, "GAZE_COVERAGE_RUN=") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 GAZE_COVERAGE_RUN entry, got %d", count)
+	}
+
+	// Verify the value is "1", not "stale".
+	found := false
+	for _, e := range cmd.Env {
+		if e == "GAZE_COVERAGE_RUN=1" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected GAZE_COVERAGE_RUN=1 (not stale value) in cmd.Env")
+	}
+}

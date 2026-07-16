@@ -99,6 +99,45 @@ func TestGoLineCoverageProvider_DirectoryAsProfile(t *testing.T) {
 	}
 }
 
+// TestCoverage_ShortWithCoverProfile verifies that Coverage with
+// Short=true and a valid coverProfile path reads the profile directly
+// without spawning a subprocess. The Short field does not affect the
+// pre-generated profile path — it only matters when go test is invoked.
+func TestCoverage_ShortWithCoverProfile(t *testing.T) {
+	// Write a profile referencing a real file in this module.
+	tmpDir := t.TempDir()
+	profilePath := filepath.Join(tmpDir, "cover.out")
+	profileData := "mode: set\n" +
+		"github.com/unbound-force/gaze/internal/crap/crap.go:245.55,247.2 1 1\n"
+	if err := os.WriteFile(profilePath, []byte(profileData), 0644); err != nil {
+		t.Fatalf("writing test profile: %v", err)
+	}
+
+	moduleDir := moduleRoot(t)
+	provider := goprovider.NewLineCoverageProvider(io.Discard)
+	provider.Short = true
+
+	results, err := provider.Coverage([]string{"./..."}, moduleDir, profilePath)
+	if err != nil {
+		t.Fatalf("Coverage with Short=true returned error: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected non-empty coverage results from valid profile with Short=true")
+	}
+
+	// Verify results have valid fields — same assertions as the
+	// non-Short test to confirm Short doesn't alter profile parsing.
+	for _, r := range results {
+		if r.File == "" {
+			t.Error("expected non-empty File in FuncCoverage result")
+		}
+		if r.Percentage < 0 || r.Percentage > 100 {
+			t.Errorf("Coverage percentage %f out of [0, 100] range", r.Percentage)
+		}
+	}
+}
+
 // TestGoSideEffectAnalyzer_WellTestedFixture verifies that Analyze
 // detects and classifies side effects using a real Go package fixture.
 // This test loads a real Go package via go/packages — it runs in both

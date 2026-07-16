@@ -102,12 +102,12 @@ type crapStepResult struct {
 // When non-nil, it is set on crap.Options.ContractCoverageProvider, enabling
 // GazeCRAP scores, quadrant classification, and GazeCRAPload computation.
 // When nil, only line-coverage-based CRAP scores are produced (spec 022).
-func runCRAPStep(patterns []string, moduleDir string, coverProfile string, stderr io.Writer, ccProvider crap.ContractCoverageProvider) (*crapStepResult, error) {
+func runCRAPStep(patterns []string, moduleDir string, coverProfile string, stderr io.Writer, ccProvider crap.ContractCoverageProvider, short bool) (*crapStepResult, error) {
 	opts := crap.DefaultOptions()
 	opts.CoverProfile = coverProfile
 	opts.Stderr = stderr
 	opts.ComplexityProvider = goprovider.NewComplexityProvider()
-	opts.LineCoverageProvider = goprovider.NewLineCoverageProvider(stderr)
+	opts.LineCoverageProvider = &goprovider.GoLineCoverageProvider{Stderr: stderr, Short: short}
 	if ccProvider != nil {
 		opts.ContractCoverageProvider = ccProvider
 	}

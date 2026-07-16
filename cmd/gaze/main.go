@@ -866,6 +866,7 @@ func newCrapCmd() *cobra.Command {
 		baselinePath      string
 		analyzerFlag      string
 		languageFlag      string
+		testShort         bool
 	)
 
 	cmd := &cobra.Command{
@@ -894,7 +895,9 @@ automatically.`,
 			opts.GazeCRAPThreshold = gazeCrapThreshold
 			opts.Stderr = os.Stderr
 			opts.ComplexityProvider = goprovider.NewComplexityProvider()
-			opts.LineCoverageProvider = goprovider.NewLineCoverageProvider(os.Stderr)
+			lineProv := goprovider.NewLineCoverageProvider(os.Stderr)
+			lineProv.Short = testShort
+			opts.LineCoverageProvider = lineProv
 			return runCrap(crapParams{
 				patterns:        args,
 				format:          format,
@@ -936,6 +939,8 @@ automatically.`,
 		"external analyzer binary (e.g., snake-eyes)")
 	cmd.Flags().StringVar(&languageFlag, "language", "",
 		"target language for analyzer discovery (e.g., python)")
+	cmd.Flags().BoolVar(&testShort, "test-short", false,
+		"pass -short to internal go test invocation (faster, less accurate coverage)")
 
 	return cmd
 }
@@ -1460,8 +1465,10 @@ type selfCheckParams struct {
 	format          string
 	maxCrapload     int
 	maxGazeCrapload int
-	stdout          io.Writer
-	stderr          io.Writer
+	// testShort passes -short to the internal go test invocation when true.
+	testShort bool
+	stdout    io.Writer
+	stderr    io.Writer
 
 	// thresholdSet is true when any threshold flag was explicitly
 	// provided on the command line (via cmd.Flags().Changed). Passed
@@ -1505,7 +1512,9 @@ func runSelfCheck(p selfCheckParams) error {
 	selfOpts := crap.DefaultOptions()
 	selfOpts.Stderr = p.stderr
 	selfOpts.ComplexityProvider = goprovider.NewComplexityProvider()
-	selfOpts.LineCoverageProvider = goprovider.NewLineCoverageProvider(p.stderr)
+	lineProv := goprovider.NewLineCoverageProvider(p.stderr)
+	lineProv.Short = p.testShort
+	selfOpts.LineCoverageProvider = lineProv
 
 	cp := crapParams{
 		patterns:        []string{"./..."},
@@ -1531,6 +1540,7 @@ func newSelfCheckCmd() *cobra.Command {
 		format          string
 		maxCrapload     int
 		maxGazeCrapload int
+		testShort       bool
 	)
 
 	cmd := &cobra.Command{
@@ -1547,6 +1557,7 @@ scores are included when contract coverage data is available
 				format:          format,
 				maxCrapload:     maxCrapload,
 				maxGazeCrapload: maxGazeCrapload,
+				testShort:       testShort,
 				stdout:          os.Stdout,
 				stderr:          os.Stderr,
 				thresholdSet:    cmd.Flags().Changed("max-crapload") || cmd.Flags().Changed("max-gaze-crapload"),
@@ -1560,6 +1571,8 @@ scores are included when contract coverage data is available
 		"fail if CRAPload exceeds this count (0 = no limit)")
 	cmd.Flags().IntVar(&maxGazeCrapload, "max-gaze-crapload", 0,
 		"fail if GazeCRAPload exceeds this count (0 = no limit)")
+	cmd.Flags().BoolVar(&testShort, "test-short", true,
+		"pass -short to internal go test invocation (default true for self-check to avoid timeouts)")
 
 	return cmd
 }
@@ -1579,8 +1592,10 @@ type reportParams struct {
 	coverProfile        string
 	analyzerFlag        string
 	languageFlag        string
-	stdout              io.Writer
-	stderr              io.Writer
+	// testShort passes -short to internal go test invocations when true.
+	testShort bool
+	stdout    io.Writer
+	stderr    io.Writer
 
 	// runnerFunc overrides aireport.Run for testing. When nil, aireport.Run is called.
 	runnerFunc func(aireport.RunnerOptions) error
@@ -1690,6 +1705,7 @@ func runReport(p reportParams) error {
 			MaxGazeCrapload:     p.maxGazeCrapload,
 			MinContractCoverage: p.minContractCoverage,
 		},
+		TestShort:    p.testShort,
 	}
 
 	// External analyzer path: when --analyzer is set, override the
@@ -1787,13 +1803,14 @@ func captureReportJSON(fn func(w io.Writer) error) (json.RawMessage, error) {
 // analysis operations and formats the result using an external AI CLI.
 func newReportCmd() *cobra.Command {
 	var (
-		format       string
-		adapterName  string
-		modelName    string
-		aiTimeout    time.Duration
-		coverProfile string
-		analyzerFlag string
-		languageFlag string
+		format        string
+		adapterName   string
+		modelName     string
+		aiTimeout     time.Duration
+		coverProfile  string
+		analyzerFlag  string
+		languageFlag  string
+		testShortFlag bool
 
 		// Threshold raw values and "was set" flags for *int semantics.
 		maxCraploadVal     int
@@ -1851,6 +1868,7 @@ Examples:
 				coverProfile:        coverProfile,
 				analyzerFlag:        analyzerFlag,
 				languageFlag:        languageFlag,
+				testShort:           testShortFlag,
 				stdout:              cmd.OutOrStdout(),
 				stderr:              cmd.ErrOrStderr(),
 			}
@@ -1871,6 +1889,7 @@ Examples:
 	cmd.Flags().StringVar(&coverProfile, "coverprofile", "", "path to a pre-generated coverage profile (skips internal go test run)")
 	cmd.Flags().StringVar(&analyzerFlag, "analyzer", "", "external analyzer binary (e.g., snake-eyes)")
 	cmd.Flags().StringVar(&languageFlag, "language", "", "target language for analyzer discovery (e.g., python)")
+	cmd.Flags().BoolVar(&testShortFlag, "test-short", false, "pass -short to internal go test invocation (faster, less accurate coverage)")
 
 	return cmd
 }
