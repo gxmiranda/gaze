@@ -6,6 +6,10 @@ import (
 	"go/token"
 	"go/types"
 	"testing"
+
+	"golang.org/x/tools/go/packages"
+
+	"github.com/unbound-force/gaze/internal/taxonomy"
 )
 
 // parseAndTypeCheck parses Go source code and type-checks it,
@@ -13,18 +17,7 @@ import (
 // tests for the container unwrap helper functions.
 func parseAndTypeCheck(t *testing.T, src string) (*ast.File, *types.Info) {
 	t.Helper()
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "test.go", src, 0)
-	if err != nil {
-		t.Fatalf("parse: %v", err)
-	}
-	info := &types.Info{
-		Types: make(map[ast.Expr]types.TypeAndValue),
-		Defs:  make(map[*ast.Ident]types.Object),
-		Uses:  make(map[*ast.Ident]types.Object),
-	}
-	conf := types.Config{Importer: nil}
-	_, _ = conf.Check("p", fset, []*ast.File{file}, info)
+	file, info, _ := parseAndTypeCheckWithFset(t, src)
 	return file, info
 }
 
@@ -390,5 +383,641 @@ func TestIsTransformationCall_NilInputs(t *testing.T) {
 	_, _, ok := isTransformationCall(nil, nil)
 	if ok {
 		t.Error("isTransformationCall(nil, nil) should return ok=false")
+	}
+}
+
+// TestIsTransformationCall_IoReaderAndPointer verifies that a function
+// with an interface parameter that has a Read method (io.Reader-like)
+// and a pointer parameter is detected as a transformation call.
+func TestIsTransformationCall_IoReaderAndPointer(t *testing.T) {
+	// Define a local Reader interface with a Read method to avoid
+	// depending on the io package importer (parseAndTypeCheck uses
+	// Importer: nil).
+	src := `package p
+
+type Reader interface { Read(p []byte) (n int, err error) }
+func decode(r Reader, dst *int) {}
+func f() { var x int; decode(nil, &x) }`
+	file, info := parseAndTypeCheck(t, src)
+	call := extractCallFromFunc(t, file, 2, 1) // f(), stmt 1: decode(nil, &x)
+
+	byteIdx, ptrIdx, ok := isTransformationCall(call, info)
+	if !ok {
+		t.Fatal("isTransformationCall should match func(io.Reader, *int)")
+	}
+	if byteIdx != 0 {
+		t.Errorf("byteArgIdx = %d, want 0", byteIdx)
+	}
+	if ptrIdx != 1 {
+		t.Errorf("ptrDestIdx = %d, want 1", ptrIdx)
+	}
+}
+
+// TestIsTransformationCall_EmptyInterfaceAsPointerDest verifies that a
+// function with []byte and interface{} parameters is detected as a
+// transformation call, where the empty interface serves as the pointer
+// destination (e.g., json.Unmarshal).
+func TestIsTransformationCall_EmptyInterfaceAsPointerDest(t *testing.T) {
+	src := `package p
+
+func unmarshal(data []byte, v interface{}) {}
+func f() { unmarshal(nil, nil) }`
+	file, info := parseAndTypeCheck(t, src)
+	call := extractCallFromFunc(t, file, 1, 0) // f(), stmt 0: unmarshal(nil, nil)
+
+	byteIdx, ptrIdx, ok := isTransformationCall(call, info)
+	if !ok {
+		t.Fatal("isTransformationCall should match func([]byte, interface{})")
+	}
+	if byteIdx != 0 {
+		t.Errorf("byteArgIdx = %d, want 0", byteIdx)
+	}
+	if ptrIdx != 1 {
+		t.Errorf("ptrDestIdx = %d, want 1", ptrIdx)
+	}
+}
+
+// TestIsTransformationCall_PointerBeforeByteSlice verifies that a
+// function with *T before []byte is correctly detected — parameter
+// ordering does not affect detection, and indices are correct.
+func TestIsTransformationCall_PointerBeforeByteSlice(t *testing.T) {
+	src := `package p
+
+func decode(dst *int, data []byte) {}
+func f() { var x int; decode(&x, nil) }`
+	file, info := parseAndTypeCheck(t, src)
+	call := extractCallFromFunc(t, file, 1, 1) // f(), stmt 1: decode(&x, nil)
+
+	byteIdx, ptrIdx, ok := isTransformationCall(call, info)
+	if !ok {
+		t.Fatal("isTransformationCall should match func(*int, []byte) regardless of parameter order")
+	}
+	if ptrIdx != 0 {
+		t.Errorf("ptrDestIdx = %d, want 0 (pointer is first param)", ptrIdx)
+	}
+	if byteIdx != 1 {
+		t.Errorf("byteArgIdx = %d, want 1 ([]byte is second param)", byteIdx)
+	}
+}
+
+// --- isByteLikeParam helper unit tests ---
+
+// TestIsByteLikeParam_ByteSlice verifies that []byte is recognized
+// as a byte-like parameter type.
+func TestIsByteLikeParam_ByteSlice(t *testing.T) {
+	typ := types.NewSlice(types.Typ[types.Byte])
+	if !isByteLikeParam(typ) {
+		t.Error("isByteLikeParam should return true for []byte")
+	}
+}
+
+// TestIsByteLikeParam_String verifies that string is recognized
+// as a byte-like parameter type.
+func TestIsByteLikeParam_String(t *testing.T) {
+	if !isByteLikeParam(types.Typ[types.String]) {
+		t.Error("isByteLikeParam should return true for string")
+	}
+}
+
+// TestIsByteLikeParam_IoReader verifies that an interface with a
+// Read method is recognized as a byte-like parameter type.
+func TestIsByteLikeParam_IoReader(t *testing.T) {
+	// Construct an interface with a Read([]byte) (int, error) method
+	// to simulate io.Reader.
+	readSig := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(types.NewVar(token.NoPos, nil, "p", types.NewSlice(types.Typ[types.Byte]))),
+		types.NewTuple(
+			types.NewVar(token.NoPos, nil, "n", types.Typ[types.Int]),
+			types.NewVar(token.NoPos, nil, "err", types.Universe.Lookup("error").Type()),
+		),
+		false,
+	)
+	readMethod := types.NewFunc(token.NoPos, nil, "Read", readSig)
+	iface := types.NewInterfaceType([]*types.Func{readMethod}, nil)
+	iface.Complete()
+
+	if !isByteLikeParam(iface) {
+		t.Error("isByteLikeParam should return true for an interface with a Read method")
+	}
+}
+
+// TestIsByteLikeParam_NonReadInterface verifies that an interface
+// without a Read method is not recognized as a byte-like parameter.
+func TestIsByteLikeParam_NonReadInterface(t *testing.T) {
+	writeSig := types.NewSignatureType(
+		nil, nil, nil,
+		types.NewTuple(types.NewVar(token.NoPos, nil, "p", types.NewSlice(types.Typ[types.Byte]))),
+		types.NewTuple(
+			types.NewVar(token.NoPos, nil, "n", types.Typ[types.Int]),
+			types.NewVar(token.NoPos, nil, "err", types.Universe.Lookup("error").Type()),
+		),
+		false,
+	)
+	writeMethod := types.NewFunc(token.NoPos, nil, "Write", writeSig)
+	iface := types.NewInterfaceType([]*types.Func{writeMethod}, nil)
+	iface.Complete()
+
+	if isByteLikeParam(iface) {
+		t.Error("isByteLikeParam should return false for an interface with only a Write method (no Read)")
+	}
+}
+
+// TestIsByteLikeParam_Int verifies that int is not recognized as a
+// byte-like parameter type.
+func TestIsByteLikeParam_Int(t *testing.T) {
+	if isByteLikeParam(types.Typ[types.Int]) {
+		t.Error("isByteLikeParam should return false for int")
+	}
+}
+
+// --- isPointerDestParam helper unit tests ---
+
+// TestIsPointerDestParam_Pointer verifies that *int is recognized
+// as a pointer destination parameter type.
+func TestIsPointerDestParam_Pointer(t *testing.T) {
+	typ := types.NewPointer(types.Typ[types.Int])
+	if !isPointerDestParam(typ) {
+		t.Error("isPointerDestParam should return true for *int")
+	}
+}
+
+// TestIsPointerDestParam_EmptyInterface verifies that interface{}
+// is recognized as a pointer destination parameter type.
+func TestIsPointerDestParam_EmptyInterface(t *testing.T) {
+	iface := types.NewInterfaceType(nil, nil)
+	iface.Complete()
+	if !isPointerDestParam(iface) {
+		t.Error("isPointerDestParam should return true for interface{}")
+	}
+}
+
+// TestIsPointerDestParam_Int verifies that int is not recognized
+// as a pointer destination parameter type.
+func TestIsPointerDestParam_Int(t *testing.T) {
+	if isPointerDestParam(types.Typ[types.Int]) {
+		t.Error("isPointerDestParam should return false for int")
+	}
+}
+
+// --- matchDirect helper unit tests ---
+
+// TestMatchDirect_IdentityMatch verifies that matchDirect returns a
+// mapping with confidence 75 when the assertion expression contains
+// an identifier whose types.Object is in objToEffectID.
+func TestMatchDirect_IdentityMatch(t *testing.T) {
+	src := `package p
+func f() {
+	result := 42
+	_ = result + 1
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	// result is defined at stmt 0, used in stmt 1's RHS.
+	resultObj := extractVarObj(t, file, info, 0, 0)
+	rhs := extractRHS(t, file, 0, 1)
+
+	effectID := "effect-return-1"
+	objToEffectID := map[types.Object]string{resultObj: effectID}
+	effectMap := map[string]*taxonomy.SideEffect{
+		effectID: {ID: effectID, Type: taxonomy.ReturnValue},
+	}
+
+	site := AssertionSite{
+		Location: "test.go:4",
+		Kind:     AssertionKindStdlibComparison,
+		Expr:     rhs,
+	}
+
+	m := matchDirect(site, objToEffectID, effectMap, info, nil)
+	if m == nil {
+		t.Fatal("matchDirect should return a mapping for identity match")
+	}
+	if m.Confidence != 75 {
+		t.Errorf("confidence = %d, want 75", m.Confidence)
+	}
+	if m.SideEffectID != effectID {
+		t.Errorf("SideEffectID = %q, want %q", m.SideEffectID, effectID)
+	}
+}
+
+// TestMatchDirect_HelperBridgeMatch verifies that matchDirect returns
+// a mapping with confidence 70 when an identifier maps through
+// helperBridge to a key in objToEffectID.
+func TestMatchDirect_HelperBridgeMatch(t *testing.T) {
+	src := `package p
+func f() {
+	got := 42
+	want := 99
+	_ = got + want
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	gotObj := extractVarObj(t, file, info, 0, 0)  // got := 42
+	wantObj := extractVarObj(t, file, info, 0, 1) // want := 99
+	rhs := extractRHS(t, file, 0, 2)              // got + want
+
+	// Simulate: gotObj is a helper parameter, callerObj is the real
+	// test variable mapped to an effect. The helperBridge maps
+	// gotObj → wantObj, and wantObj is in objToEffectID.
+	effectID := "effect-return-1"
+	objToEffectID := map[types.Object]string{wantObj: effectID}
+	effectMap := map[string]*taxonomy.SideEffect{
+		effectID: {ID: effectID, Type: taxonomy.ReturnValue},
+	}
+	helperBridge := map[types.Object]types.Object{gotObj: wantObj}
+
+	site := AssertionSite{
+		Location: "test.go:5",
+		Kind:     AssertionKindStdlibComparison,
+		Expr:     rhs,
+	}
+
+	m := matchDirect(site, objToEffectID, effectMap, info, helperBridge)
+	if m == nil {
+		t.Fatal("matchDirect should return a mapping for helper bridge match")
+	}
+	if m.Confidence != 70 {
+		t.Errorf("confidence = %d, want 70", m.Confidence)
+	}
+	if m.SideEffectID != effectID {
+		t.Errorf("SideEffectID = %q, want %q", m.SideEffectID, effectID)
+	}
+}
+
+// TestMatchDirect_NoMatch verifies that matchDirect returns nil when
+// no identifiers in the expression match objToEffectID or helperBridge.
+func TestMatchDirect_NoMatch(t *testing.T) {
+	src := `package p
+func f() {
+	x := 1
+	y := 2
+	_ = y + 3
+	_ = x
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	xObj := extractVarObj(t, file, info, 0, 0) // x := 1
+	rhs := extractRHS(t, file, 0, 2)           // y + 3
+
+	// Map x but not y — the expression only contains y.
+	effectID := "effect-return-1"
+	objToEffectID := map[types.Object]string{xObj: effectID}
+	effectMap := map[string]*taxonomy.SideEffect{
+		effectID: {ID: effectID, Type: taxonomy.ReturnValue},
+	}
+
+	site := AssertionSite{
+		Location: "test.go:5",
+		Kind:     AssertionKindStdlibComparison,
+		Expr:     rhs,
+	}
+
+	m := matchDirect(site, objToEffectID, effectMap, info, nil)
+	if m != nil {
+		t.Error("matchDirect should return nil when no identifiers match")
+	}
+}
+
+// TestMatchDirect_NilExpr verifies that matchDirect returns nil when
+// the assertion site has a nil expression.
+func TestMatchDirect_NilExpr(t *testing.T) {
+	site := AssertionSite{
+		Location: "test.go:1",
+		Kind:     AssertionKindStdlibComparison,
+		Expr:     nil,
+	}
+
+	m := matchDirect(site, nil, nil, nil, nil)
+	if m != nil {
+		t.Error("matchDirect should return nil for nil expression")
+	}
+}
+
+// --- matchIndirectRoot helper unit tests ---
+
+// TestMatchIndirectRoot_SelectorMatch verifies that matchIndirectRoot
+// returns a mapping with confidence 65 when a SelectorExpr's root
+// identifier (via resolveExprRoot) is in objToEffectID.
+func TestMatchIndirectRoot_SelectorMatch(t *testing.T) {
+	src := `package p
+
+type Result struct { Name string }
+
+func f() {
+	result := Result{Name: "test"}
+	_ = result.Name
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	resultObj := extractVarObj(t, file, info, 1, 0) // result := Result{...}
+	rhs := extractRHS(t, file, 1, 1)                // result.Name
+
+	effectID := "effect-return-1"
+	objToEffectID := map[types.Object]string{resultObj: effectID}
+	effectMap := map[string]*taxonomy.SideEffect{
+		effectID: {ID: effectID, Type: taxonomy.ReturnValue},
+	}
+
+	site := AssertionSite{
+		Location: "test.go:7",
+		Kind:     AssertionKindStdlibComparison,
+		Expr:     rhs,
+	}
+
+	m := matchIndirectRoot(site, objToEffectID, effectMap, info)
+	if m == nil {
+		t.Fatal("matchIndirectRoot should return a mapping for selector match")
+	}
+	if m.Confidence != 65 {
+		t.Errorf("confidence = %d, want 65", m.Confidence)
+	}
+	if m.SideEffectID != effectID {
+		t.Errorf("SideEffectID = %q, want %q", m.SideEffectID, effectID)
+	}
+}
+
+// TestMatchIndirectRoot_NoComposite verifies that matchIndirectRoot
+// returns nil when the expression contains only simple identifiers
+// (no SelectorExpr, IndexExpr, or CallExpr nodes).
+func TestMatchIndirectRoot_NoComposite(t *testing.T) {
+	src := `package p
+func f() {
+	x := 1
+	_ = x + 2
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	xObj := extractVarObj(t, file, info, 0, 0) // x := 1
+	rhs := extractRHS(t, file, 0, 1)           // x + 2
+
+	effectID := "effect-return-1"
+	objToEffectID := map[types.Object]string{xObj: effectID}
+	effectMap := map[string]*taxonomy.SideEffect{
+		effectID: {ID: effectID, Type: taxonomy.ReturnValue},
+	}
+
+	site := AssertionSite{
+		Location: "test.go:4",
+		Kind:     AssertionKindStdlibComparison,
+		Expr:     rhs,
+	}
+
+	m := matchIndirectRoot(site, objToEffectID, effectMap, info)
+	if m != nil {
+		t.Error("matchIndirectRoot should return nil when expression has only simple identifiers")
+	}
+}
+
+// parseAndTypeCheckWithFset parses Go source code and type-checks it,
+// returning the AST file, populated types.Info, and the file set. This
+// variant is needed for constructing packages.Package instances in
+// traceForwardDataFlow tests.
+func parseAndTypeCheckWithFset(t *testing.T, src string) (*ast.File, *types.Info, *token.FileSet) {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", src, 0)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	info := &types.Info{
+		Types: make(map[ast.Expr]types.TypeAndValue),
+		Defs:  make(map[*ast.Ident]types.Object),
+		Uses:  make(map[*ast.Ident]types.Object),
+	}
+	// Type-check errors are expected and intentionally ignored because
+	// Importer is nil — the synthetic test code only needs local
+	// definitions to be resolved, not imported packages.
+	conf := types.Config{Importer: nil}
+	_, _ = conf.Check("p", fset, []*ast.File{file}, info)
+	return file, info, fset
+}
+
+// --- collectTrackedVars helper unit tests ---
+
+// TestCollectTrackedVars_MultipleMatches verifies that collectTrackedVars
+// returns only the types.Object keys whose effect ID matches the target
+// returnEffectID when multiple entries exist.
+func TestCollectTrackedVars_MultipleMatches(t *testing.T) {
+	src := `package p
+func f() {
+	a := 1
+	b := 2
+	c := 3
+	_ = a + b + c
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	aObj := extractVarObj(t, file, info, 0, 0) // a := 1
+	bObj := extractVarObj(t, file, info, 0, 1) // b := 2
+	cObj := extractVarObj(t, file, info, 0, 2) // c := 3
+
+	targetID := "effect-return-1"
+	objToEffectID := map[types.Object]string{
+		aObj: targetID,
+		bObj: "effect-other",
+		cObj: targetID,
+	}
+
+	tracked := collectTrackedVars(objToEffectID, targetID)
+	if len(tracked) != 2 {
+		t.Fatalf("len(tracked) = %d, want 2", len(tracked))
+	}
+	if !tracked[aObj] {
+		t.Error("tracked set should contain aObj")
+	}
+	if !tracked[cObj] {
+		t.Error("tracked set should contain cObj")
+	}
+	if tracked[bObj] {
+		t.Error("tracked set should NOT contain bObj (different effect ID)")
+	}
+}
+
+// TestCollectTrackedVars_NoMatches verifies that collectTrackedVars
+// returns an empty map when no entries match the returnEffectID.
+func TestCollectTrackedVars_NoMatches(t *testing.T) {
+	src := `package p
+func f() {
+	a := 1
+	b := 2
+	_ = a + b
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	aObj := extractVarObj(t, file, info, 0, 0) // a := 1
+	bObj := extractVarObj(t, file, info, 0, 1) // b := 2
+
+	objToEffectID := map[types.Object]string{
+		aObj: "effect-other-1",
+		bObj: "effect-other-2",
+	}
+
+	tracked := collectTrackedVars(objToEffectID, "effect-return-1")
+	if len(tracked) != 0 {
+		t.Errorf("len(tracked) = %d, want 0", len(tracked))
+	}
+}
+
+// --- traceForwardDataFlow helper unit tests ---
+
+// TestTraceForwardDataFlow_SimpleChain verifies that traceForwardDataFlow
+// traces through a simple field-access assignment: if x is tracked,
+// then y := x.Field causes y to be added to the tracked set.
+func TestTraceForwardDataFlow_SimpleChain(t *testing.T) {
+	src := `package p
+
+type S struct { Field int }
+
+func f() {
+	x := S{Field: 42}
+	y := x.Field
+	_ = y
+}`
+	file, info, fset := parseAndTypeCheckWithFset(t, src)
+
+	xObj := extractVarObj(t, file, info, 1, 0) // x := S{...}
+	yObj := extractVarObj(t, file, info, 1, 1) // y := x.Field
+
+	tracked := map[types.Object]bool{xObj: true}
+	pkg := &packages.Package{
+		Syntax:    []*ast.File{file},
+		TypesInfo: info,
+		Fset:      fset,
+	}
+
+	result := traceForwardDataFlow(tracked, pkg)
+	if !result[yObj] {
+		t.Error("traceForwardDataFlow should add y (from y := x.Field) to tracked set")
+	}
+	if !result[xObj] {
+		t.Error("traceForwardDataFlow should preserve original tracked variable x")
+	}
+}
+
+// TestTraceForwardDataFlow_EmptyTracked verifies that traceForwardDataFlow
+// returns the empty tracked set immediately when given no initial variables.
+func TestTraceForwardDataFlow_EmptyTracked(t *testing.T) {
+	src := `package p
+func f() {
+	x := 1
+	_ = x
+}`
+	file, info, fset := parseAndTypeCheckWithFset(t, src)
+
+	tracked := map[types.Object]bool{}
+	pkg := &packages.Package{
+		Syntax:    []*ast.File{file},
+		TypesInfo: info,
+		Fset:      fset,
+	}
+
+	result := traceForwardDataFlow(tracked, pkg)
+	if len(result) != 0 {
+		t.Errorf("traceForwardDataFlow with empty tracked should return empty, got %d entries", len(result))
+	}
+}
+
+// TestTraceForwardDataFlow_NonDataExtraction verifies that traceForwardDataFlow
+// does NOT add the LHS variable when the RHS is a method call (not a
+// data-extraction expression). Method calls like s.Get("key") are gated
+// by isDataExtraction to prevent false positives.
+func TestTraceForwardDataFlow_NonDataExtraction(t *testing.T) {
+	src := `package p
+
+type Store struct{}
+func (Store) Get(key string) int { return 0 }
+
+func f() {
+	s := Store{}
+	got := s.Get("key")
+	_ = got
+}`
+	file, info, fset := parseAndTypeCheckWithFset(t, src)
+
+	// s is at funcIdx=2 (after type decl and method decl), stmtIdx=0
+	sObj := extractVarObj(t, file, info, 2, 0)   // s := Store{}
+	gotObj := extractVarObj(t, file, info, 2, 1) // got := s.Get("key")
+
+	tracked := map[types.Object]bool{sObj: true}
+	pkg := &packages.Package{
+		Syntax:    []*ast.File{file},
+		TypesInfo: info,
+		Fset:      fset,
+	}
+
+	result := traceForwardDataFlow(tracked, pkg)
+	if result[gotObj] {
+		t.Error("traceForwardDataFlow should NOT add got from s.Get(\"key\") — method call is not a data extraction")
+	}
+	if !result[sObj] {
+		t.Error("traceForwardDataFlow should preserve original tracked variable s")
+	}
+}
+
+// --- matchTrackedInExpr helper unit tests ---
+
+// TestMatchTrackedInExpr_DirectMatch verifies that matchTrackedInExpr
+// returns true when the expression contains an identifier whose
+// types.Object is directly in the tracked set.
+func TestMatchTrackedInExpr_DirectMatch(t *testing.T) {
+	src := `package p
+func f() {
+	x := 42
+	_ = x + 1
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	xObj := extractVarObj(t, file, info, 0, 0) // x := 42
+	rhs := extractRHS(t, file, 0, 1)           // x + 1
+
+	tracked := map[types.Object]bool{xObj: true}
+	if !matchTrackedInExpr(rhs, tracked, info) {
+		t.Error("matchTrackedInExpr should return true when expression contains tracked identifier")
+	}
+}
+
+// TestMatchTrackedInExpr_RootResolution verifies that matchTrackedInExpr
+// returns true for composite expressions like tracked.Field where the
+// root identifier resolves to a tracked variable via resolveExprRoot.
+func TestMatchTrackedInExpr_RootResolution(t *testing.T) {
+	src := `package p
+
+type S struct { Field int }
+
+func f() {
+	tracked := S{Field: 1}
+	_ = tracked.Field
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	trackedObj := extractVarObj(t, file, info, 1, 0) // tracked := S{...}
+	rhs := extractRHS(t, file, 1, 1)                 // tracked.Field
+
+	trackedSet := map[types.Object]bool{trackedObj: true}
+	if !matchTrackedInExpr(rhs, trackedSet, info) {
+		t.Error("matchTrackedInExpr should return true for tracked.Field via root resolution")
+	}
+}
+
+// TestMatchTrackedInExpr_NoMatch verifies that matchTrackedInExpr
+// returns false when the expression contains no identifiers in the
+// tracked set.
+func TestMatchTrackedInExpr_NoMatch(t *testing.T) {
+	src := `package p
+func f() {
+	x := 1
+	y := 2
+	_ = y + 3
+	_ = x
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	xObj := extractVarObj(t, file, info, 0, 0) // x := 1
+	rhs := extractRHS(t, file, 0, 2)           // y + 3
+
+	tracked := map[types.Object]bool{xObj: true}
+	if matchTrackedInExpr(rhs, tracked, info) {
+		t.Error("matchTrackedInExpr should return false when no identifiers match tracked set")
 	}
 }
