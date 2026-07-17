@@ -734,6 +734,86 @@ const containerUnwrapConfidence = 55
 // assert) with margin for more complex chains.
 const maxContainerChainDepth = 6
 
+// isByteLikeParam reports whether typ represents a byte-like input type
+// suitable for transformation call detection. It recognizes three patterns:
+//   - []byte: a slice with a byte element type
+//   - string: a basic type with String kind
+//   - io.Reader: an interface whose method set includes a Read method
+func isByteLikeParam(typ types.Type) bool {
+	// Check for []byte: *types.Slice with byte element.
+	if sl, ok := typ.(*types.Slice); ok {
+		if basic, ok := sl.Elem().(*types.Basic); ok && basic.Kind() == types.Byte {
+			return true
+		}
+	}
+
+	// Check for string: *types.Basic with Kind() == types.String.
+	if basic, ok := typ.(*types.Basic); ok && basic.Kind() == types.String {
+		return true
+	}
+
+	// Check for io.Reader: interface with Read method.
+	if iface, ok := typ.Underlying().(*types.Interface); ok {
+		ms := types.NewMethodSet(iface)
+		for i := 0; i < ms.Len(); i++ {
+			if ms.At(i).Obj().Name() == "Read" {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// isPointerDestParam reports whether typ represents a pointer destination
+// type suitable for transformation call detection. It recognizes two patterns:
+//   - *T: a pointer type
+//   - interface{}/any: an empty interface (zero methods), commonly used as
+//     the destination parameter in unmarshal functions
+func isPointerDestParam(typ types.Type) bool {
+	// Check for pointer type: *types.Pointer.
+	if _, ok := typ.(*types.Pointer); ok {
+		return true
+	}
+
+	// Check for empty interface (any/interface{}) via Underlying
+	// to handle named types.
+	if iface, ok := typ.Underlying().(*types.Interface); ok {
+		return iface.NumMethods() == 0
+	}
+
+	return false
+}
+
+// resolveCallSignature extracts the function signature from a call
+// expression using type information. Returns nil if the call or info
+// is nil, or if the function type cannot be resolved to a signature.
+func resolveCallSignature(call *ast.CallExpr, info *types.Info) *types.Signature {
+	if call == nil || info == nil {
+		return nil
+	}
+	tv, exists := info.Types[call.Fun]
+	if !exists {
+		return nil
+	}
+	sig, ok := tv.Type.(*types.Signature)
+	if !ok {
+		return nil
+	}
+	return sig
+}
+
+// findParamIndex returns the index of the first parameter matching the
+// predicate, or -1 if none match.
+func findParamIndex(params *types.Tuple, predicate func(types.Type) bool) int {
+	for i := 0; i < params.Len(); i++ {
+		if predicate(params.At(i).Type()) {
+			return i
+		}
+	}
+	return -1
+}
+
 // isTransformationCall checks whether a call expression matches the
 // structural signature pattern of a transformation function: a function
 // that accepts a byte-like input ([]byte, string, or io.Reader) AND a
@@ -743,85 +823,18 @@ const maxContainerChainDepth = 6
 // This enables structural detection of unmarshal-like functions without
 // hardcoding specific function names (FR-001, FR-008).
 func isTransformationCall(call *ast.CallExpr, info *types.Info) (byteArgIdx int, ptrDestIdx int, ok bool) {
-	if call == nil || info == nil {
-		return 0, 0, false
-	}
-
-	tv, exists := info.Types[call.Fun]
-	if !exists {
-		return 0, 0, false
-	}
-
-	sig, isSig := tv.Type.(*types.Signature)
-	if !isSig {
+	sig := resolveCallSignature(call, info)
+	if sig == nil {
 		return 0, 0, false
 	}
 
 	params := sig.Params()
-	if params == nil || params.Len() == 0 {
+	if params == nil {
 		return 0, 0, false
 	}
 
-	byteArgIdx = -1
-	ptrDestIdx = -1
-
-	for i := 0; i < params.Len(); i++ {
-		paramType := params.At(i).Type()
-
-		// Check for []byte: *types.Slice with byte element.
-		if sl, isSl := paramType.(*types.Slice); isSl {
-			if basic, isBasic := sl.Elem().(*types.Basic); isBasic && basic.Kind() == types.Byte {
-				if byteArgIdx == -1 {
-					byteArgIdx = i
-				}
-				continue
-			}
-		}
-
-		// Check for string: *types.Basic with Kind() == types.String.
-		if basic, isBasic := paramType.(*types.Basic); isBasic && basic.Kind() == types.String {
-			if byteArgIdx == -1 {
-				byteArgIdx = i
-			}
-			continue
-		}
-
-		// Check for pointer type: *types.Pointer.
-		if _, isPtr := paramType.(*types.Pointer); isPtr {
-			if ptrDestIdx == -1 {
-				ptrDestIdx = i
-			}
-			continue
-		}
-
-		// Check for interface types: io.Reader (byte-like input) or
-		// interface{}/any (pointer destination for unmarshal functions).
-		if iface, isIface := paramType.Underlying().(*types.Interface); isIface {
-			// io.Reader: interface with Read method → byte-like input.
-			hasRead := false
-			ms := types.NewMethodSet(iface)
-			for j := 0; j < ms.Len(); j++ {
-				if ms.At(j).Obj().Name() == "Read" {
-					hasRead = true
-					break
-				}
-			}
-			if hasRead {
-				if byteArgIdx == -1 {
-					byteArgIdx = i
-				}
-				continue
-			}
-			// Empty interface (any/interface{}) — commonly used as
-			// pointer destination in unmarshal functions (e.g.,
-			// json.Unmarshal takes any as second param, callers pass &data).
-			if iface.NumMethods() == 0 {
-				if ptrDestIdx == -1 {
-					ptrDestIdx = i
-				}
-			}
-		}
-	}
+	byteArgIdx = findParamIndex(params, isByteLikeParam)
+	ptrDestIdx = findParamIndex(params, isPointerDestParam)
 
 	if byteArgIdx >= 0 && ptrDestIdx >= 0 {
 		return byteArgIdx, ptrDestIdx, true
@@ -939,51 +952,38 @@ func isDataExtraction(expr ast.Expr) bool {
 	}
 }
 
-// matchContainerUnwrap traces data flow forward from the return value
-// variable through intermediate assignments and transformation calls
-// to the assertion expression. This handles the container-unwrap-assert
-// pattern where a test assigns a function's return value, accesses a
-// field, passes it through a transformation (like JSON unmarshal), and
-// asserts on the result.
-//
-// The algorithm:
-//  1. Collect all types.Object keys from objToEffectID that map to a
-//     ReturnValue effect as the initial tracked variable set.
-//  2. For up to maxContainerChainDepth iterations, walk the test
-//     package AST looking for assignment statements where the RHS
-//     references a tracked variable. For transformation calls, extract
-//     the pointer destination as the new tracked variable.
-//  3. Check if the assertion site's expression contains any tracked
-//     variable.
-//  4. If matched, return an AssertionMapping with confidence 55.
-func matchContainerUnwrap(
-	site AssertionSite,
-	objToEffectID map[types.Object]string,
-	effectMap map[string]*taxonomy.SideEffect,
-	testPkg *packages.Package,
-	returnEffectID string,
-) *taxonomy.AssertionMapping {
-	if site.Expr == nil || testPkg == nil || testPkg.TypesInfo == nil || returnEffectID == "" {
-		return nil
-	}
-
-	info := testPkg.TypesInfo
-
-	// Step 1: Collect initial tracked variables — those mapped to
-	// the ReturnValue effect.
+// collectTrackedVars filters objToEffectID entries whose value matches
+// returnEffectID and returns a set of the matching types.Object keys.
+// This is the initial "seed" set for forward data-flow tracing —
+// variables that hold the return value of interest.
+func collectTrackedVars(objToEffectID map[types.Object]string, returnEffectID string) map[types.Object]bool {
 	tracked := make(map[types.Object]bool)
 	for obj, effectID := range objToEffectID {
 		if effectID == returnEffectID {
 			tracked[obj] = true
 		}
 	}
+	return tracked
+}
+
+// traceForwardDataFlow performs multi-iteration forward data-flow
+// tracing through assignment statements in the test package AST.
+// Starting from the tracked set of variables, it walks assignments
+// looking for RHS expressions that reference tracked variables. For
+// transformation calls (detected via isTransformationCall), it
+// extracts the pointer destination as a new tracked variable. For
+// non-transformation assignments, it gates on isDataExtraction to
+// prevent false positives from method calls like s.Get("key").
+// Iterations continue until convergence (no new variables discovered)
+// or maxContainerChainDepth is reached. The input tracked map is
+// mutated in place and returned with any newly discovered entries.
+func traceForwardDataFlow(tracked map[types.Object]bool, testPkg *packages.Package) map[types.Object]bool {
 	if len(tracked) == 0 {
-		return nil
+		return tracked
 	}
 
-	// Step 2: Forward-trace through assignments for up to
-	// maxContainerChainDepth iterations. Each iteration may
-	// discover new tracked variables derived from existing ones.
+	info := testPkg.TypesInfo
+
 	for iter := 0; iter < maxContainerChainDepth; iter++ {
 		newTracked := make(map[types.Object]bool)
 
@@ -1103,16 +1103,17 @@ func matchContainerUnwrap(
 		}
 	}
 
-	// Step 3: Check if the assertion expression contains any
-	// tracked variable.
-	effect := effectMap[returnEffectID]
-	if effect == nil {
-		return nil
-	}
+	return tracked
+}
 
-	// Direct identity check via ast.Inspect.
+// matchTrackedInExpr walks the expression tree via ast.Inspect and
+// returns true if any identifier's types.Object is in the tracked set.
+// It checks both direct identity (via info.Uses and info.Defs) and
+// resolveExprRoot fallback for composite expressions like data["key"]
+// where the root ident "data" is the tracked variable.
+func matchTrackedInExpr(expr ast.Expr, tracked map[types.Object]bool, info *types.Info) bool {
 	var matched bool
-	ast.Inspect(site.Expr, func(n ast.Node) bool {
+	ast.Inspect(expr, func(n ast.Node) bool {
 		if matched {
 			return false
 		}
@@ -1134,7 +1135,7 @@ func matchContainerUnwrap(
 	// Also check via resolveExprRoot for compound expressions
 	// like data["key"] where the root ident is "data".
 	if !matched {
-		root := resolveExprRoot(site.Expr, info)
+		root := resolveExprRoot(expr, info)
 		if root != nil {
 			rootObj := info.Uses[root]
 			if rootObj == nil {
@@ -1146,68 +1147,79 @@ func matchContainerUnwrap(
 		}
 	}
 
-	if !matched {
-		return nil
-	}
-
-	return &taxonomy.AssertionMapping{
-		AssertionLocation: site.Location,
-		AssertionType:     mapKindToType(site.Kind),
-		SideEffectID:      returnEffectID,
-		Confidence:        containerUnwrapConfidence,
-	}
+	return matched
 }
 
-// matchAssertionToEffect attempts to match an assertion site to a
-// traced side effect value using types.Object identity.
+// matchContainerUnwrap traces data flow forward from the return value
+// variable through intermediate assignments and transformation calls
+// to the assertion expression. This handles the container-unwrap-assert
+// pattern where a test assigns a function's return value, accesses a
+// field, passes it through a transformation (like JSON unmarshal), and
+// asserts on the result.
 //
-// It uses a two-pass matching strategy:
+// The algorithm delegates to three helpers:
+//  1. collectTrackedVars — seeds the tracked set from objToEffectID.
+//  2. traceForwardDataFlow — expands the set through AST assignments.
+//  3. matchTrackedInExpr — checks the assertion expression for matches.
 //
-// Pass 1 (direct): Walk the expression tree with ast.Inspect looking
-// for *ast.Ident nodes whose types.Object is directly in objToEffectID.
-// This is the original behavior. Matches produce confidence 75.
-// Because ast.Inspect visits all descendant nodes, this handles
-// simple selector expressions (e.g., result.Name) — the root ident
-// "result" is visited as a child of the SelectorExpr and matched
-// directly at confidence 75.
-//
-// Pass 2 (indirect): If Pass 1 found no match, walk the expression
-// tree again. For each SelectorExpr, IndexExpr, or CallExpr node,
-// call resolveExprRoot to unwind to the root identifier. If the
-// root's types.Object is in objToEffectID, produce a match at
-// confidence 65. This handles cases where the root ident is not
-// directly reachable by ast.Inspect as a bare *ast.Ident — e.g.,
-// index expressions (results[0]) or nested composites where the
-// root is buried inside a complex expression structure.
-//
-// Pass 1 always executes first so direct identity matches are never
-// degraded by indirect resolution.
-func matchAssertionToEffect(
+// If matched, returns an AssertionMapping with confidence 55.
+func matchContainerUnwrap(
 	site AssertionSite,
 	objToEffectID map[types.Object]string,
 	effectMap map[string]*taxonomy.SideEffect,
 	testPkg *packages.Package,
+	returnEffectID string,
+) *taxonomy.AssertionMapping {
+	if site.Expr == nil || testPkg == nil || testPkg.TypesInfo == nil || returnEffectID == "" {
+		return nil
+	}
+
+	info := testPkg.TypesInfo
+
+	tracked := collectTrackedVars(objToEffectID, returnEffectID)
+	if len(tracked) == 0 {
+		return nil
+	}
+
+	tracked = traceForwardDataFlow(tracked, testPkg)
+
+	effect := effectMap[returnEffectID]
+	if effect == nil {
+		return nil
+	}
+
+	if matchTrackedInExpr(site.Expr, tracked, info) {
+		return &taxonomy.AssertionMapping{
+			AssertionLocation: site.Location,
+			AssertionType:     mapKindToType(site.Kind),
+			SideEffectID:      returnEffectID,
+			Confidence:        containerUnwrapConfidence,
+		}
+	}
+
+	return nil
+}
+
+// matchDirect walks the assertion expression tree via ast.Inspect looking
+// for *ast.Ident nodes whose types.Object is directly in objToEffectID
+// (confidence 75) or reachable through helperBridge → objToEffectID
+// (confidence 70). It skips nil/true/false literal identifiers and
+// returns the first match found, or nil if no match exists.
+//
+// Because ast.Inspect visits all descendant nodes, this handles simple
+// selector expressions (e.g., result.Name) — the root ident "result"
+// is visited as a child of the SelectorExpr and matched directly.
+func matchDirect(
+	site AssertionSite,
+	objToEffectID map[types.Object]string,
+	effectMap map[string]*taxonomy.SideEffect,
+	info *types.Info,
+	helperBridge map[types.Object]types.Object,
 ) *taxonomy.AssertionMapping {
 	if site.Expr == nil {
 		return nil
 	}
 
-	var info *types.Info
-	if testPkg != nil {
-		info = testPkg.TypesInfo
-	}
-	if info == nil {
-		return nil
-	}
-
-	// Build supplemental param→arg bridging for helper assertions.
-	// When a test calls assertEqual(t, got, 12), the assertion
-	// expression inside assertEqual references the helper's
-	// parameter objects. We bridge these back to the caller's
-	// argument objects to find matches in objToEffectID.
-	helperBridge := buildHelperBridge(site, objToEffectID, info)
-
-	// Pass 1: Direct identity matching (confidence 75).
 	var matched *taxonomy.AssertionMapping
 	ast.Inspect(site.Expr, func(n ast.Node) bool {
 		if matched != nil {
@@ -1268,14 +1280,31 @@ func matchAssertionToEffect(
 		return true
 	})
 
-	if matched != nil {
-		return matched
+	return matched
+}
+
+// matchIndirectRoot walks the assertion expression tree looking for
+// composite expression nodes (SelectorExpr, IndexExpr, CallExpr) and
+// resolves each to its root identifier via resolveExprRoot. If the
+// root's types.Object is in objToEffectID, it returns a match at
+// confidence 65. Returns nil if no composite expression resolves to
+// a tracked object.
+//
+// This handles cases where the root ident is not directly reachable by
+// ast.Inspect as a bare *ast.Ident — e.g., index expressions
+// (results[0]) or nested composites where the root is buried inside
+// a complex expression structure.
+func matchIndirectRoot(
+	site AssertionSite,
+	objToEffectID map[types.Object]string,
+	effectMap map[string]*taxonomy.SideEffect,
+	info *types.Info,
+) *taxonomy.AssertionMapping {
+	if site.Expr == nil {
+		return nil
 	}
 
-	// Pass 2: Indirect root resolution (confidence 65).
-	// For each composite expression node (SelectorExpr, IndexExpr,
-	// CallExpr), resolve to the root identifier and check against
-	// the traced object map.
+	var matched *taxonomy.AssertionMapping
 	ast.Inspect(site.Expr, func(n ast.Node) bool {
 		if matched != nil {
 			return false
@@ -1324,6 +1353,49 @@ func matchAssertionToEffect(
 	})
 
 	return matched
+}
+
+// matchAssertionToEffect attempts to match an assertion site to a
+// traced side effect value using types.Object identity.
+//
+// It uses a two-pass matching strategy:
+//
+// Pass 1 (direct via matchDirect): Walk the expression tree looking
+// for *ast.Ident nodes whose types.Object is directly in objToEffectID
+// (confidence 75) or reachable through the helper bridge (confidence 70).
+//
+// Pass 2 (indirect via matchIndirectRoot): If Pass 1 found no match,
+// walk the expression tree for composite nodes (SelectorExpr, IndexExpr,
+// CallExpr), resolve to root identifiers, and check against objToEffectID
+// (confidence 65).
+//
+// Pass 1 always executes first so direct identity matches are never
+// degraded by indirect resolution.
+func matchAssertionToEffect(
+	site AssertionSite,
+	objToEffectID map[types.Object]string,
+	effectMap map[string]*taxonomy.SideEffect,
+	testPkg *packages.Package,
+) *taxonomy.AssertionMapping {
+	if site.Expr == nil {
+		return nil
+	}
+
+	if testPkg == nil {
+		return nil
+	}
+	info := testPkg.TypesInfo
+	if info == nil {
+		return nil
+	}
+
+	// Build supplemental param→arg bridging for helper assertions.
+	helperBridge := buildHelperBridge(site, objToEffectID, info)
+
+	if m := matchDirect(site, objToEffectID, effectMap, info, helperBridge); m != nil {
+		return m
+	}
+	return matchIndirectRoot(site, objToEffectID, effectMap, info)
 }
 
 // matchInlineCall checks if the assertion expression contains a direct
