@@ -193,6 +193,35 @@ func HandleCustomRW(w *CustomResponseWriter) {
 	w.Write([]byte("ok"))
 }
 
+// --- Partial http.ResponseWriter (issue #162) ---
+
+// PartialResponseWriter has Write + Header but NOT WriteHeader.
+// Should produce WriterOutput, NOT HTTPResponseWrite.
+type PartialResponseWriter struct{}
+
+func (p *PartialResponseWriter) Header() http.Header { return nil }
+func (p *PartialResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+
+// HandlePartialRW calls Write on a type with only 2 of 3 ResponseWriter methods.
+func HandlePartialRW(w *PartialResponseWriter) {
+	w.Write([]byte("ok"))
+}
+
+// --- Near-miss Write signature (issue #162) ---
+
+// WrongWriteReturn has Write([]byte) int — missing error return.
+type WrongWriteReturn struct{}
+
+func (wr *WrongWriteReturn) Header() http.Header        { return nil }
+func (wr *WrongWriteReturn) Write(b []byte) int         { return len(b) }
+func (wr *WrongWriteReturn) WriteHeader(statusCode int) {}
+
+// HandleWrongWriteReturn calls Write on a type whose Write signature
+// doesn't match io.Writer. Should NOT produce HTTPResponseWrite or WriterOutput.
+func HandleWrongWriteReturn(w *WrongWriteReturn) {
+	w.Write([]byte("ok"))
+}
+
 // --- Pure function (no P1 effects) ---
 
 // PureP1 has no P1 side effects.

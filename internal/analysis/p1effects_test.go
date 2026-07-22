@@ -146,7 +146,8 @@ func TestAnalyzeP1Effects_Direct_HTTPResponseWrite(t *testing.T) {
 }
 
 // TestAnalyzeP1Effects_Direct_MapMutation verifies that AnalyzeP1Effects
-// detects MapMutation for a function that assigns to a map index.
+// detects exactly one MapMutation with the correct target for a function
+// that assigns to a map index parameter.
 func TestAnalyzeP1Effects_Direct_MapMutation(t *testing.T) {
 	pkg := loadTestPackage(t, "p1effects")
 	fd := analysis.FindFuncDecl(pkg, "WriteToMap")
@@ -156,23 +157,24 @@ func TestAnalyzeP1Effects_Direct_MapMutation(t *testing.T) {
 
 	effects := analysis.AnalyzeP1Effects(pkg.Fset, pkg.TypesInfo, fd, pkg.PkgPath, "WriteToMap")
 
-	if !hasEffect(effects, taxonomy.MapMutation) {
-		t.Error("expected MapMutation effect for WriteToMap")
+	if count := countEffects(effects, taxonomy.MapMutation); count != 1 {
+		t.Fatalf("expected exactly 1 MapMutation, got %d", count)
 	}
-	for _, e := range effects {
-		if e.Type == taxonomy.MapMutation {
-			if e.Tier != taxonomy.TierP1 {
-				t.Errorf("MapMutation tier: got %s, want P1", e.Tier)
-			}
-			if e.Description == "" {
-				t.Error("MapMutation description must not be empty")
-			}
-		}
+	e := effectWithTarget(effects, taxonomy.MapMutation, "m")
+	if e == nil {
+		t.Fatal("expected MapMutation with target \"m\"")
+	}
+	if e.Tier != taxonomy.TierP1 {
+		t.Errorf("MapMutation tier: got %s, want P1", e.Tier)
+	}
+	if e.Description == "" {
+		t.Error("MapMutation description must not be empty")
 	}
 }
 
 // TestAnalyzeP1Effects_Direct_SliceMutation verifies that AnalyzeP1Effects
-// detects SliceMutation for a function that assigns to a slice index.
+// detects exactly one SliceMutation with the correct target for a function
+// that assigns to a slice index parameter.
 func TestAnalyzeP1Effects_Direct_SliceMutation(t *testing.T) {
 	pkg := loadTestPackage(t, "p1effects")
 	fd := analysis.FindFuncDecl(pkg, "WriteToSlice")
@@ -182,18 +184,18 @@ func TestAnalyzeP1Effects_Direct_SliceMutation(t *testing.T) {
 
 	effects := analysis.AnalyzeP1Effects(pkg.Fset, pkg.TypesInfo, fd, pkg.PkgPath, "WriteToSlice")
 
-	if !hasEffect(effects, taxonomy.SliceMutation) {
-		t.Error("expected SliceMutation effect for WriteToSlice")
+	if count := countEffects(effects, taxonomy.SliceMutation); count != 1 {
+		t.Fatalf("expected exactly 1 SliceMutation, got %d", count)
 	}
-	for _, e := range effects {
-		if e.Type == taxonomy.SliceMutation {
-			if e.Tier != taxonomy.TierP1 {
-				t.Errorf("SliceMutation tier: got %s, want P1", e.Tier)
-			}
-			if e.Description == "" {
-				t.Error("SliceMutation description must not be empty")
-			}
-		}
+	e := effectWithTarget(effects, taxonomy.SliceMutation, "s")
+	if e == nil {
+		t.Fatal("expected SliceMutation with target \"s\"")
+	}
+	if e.Tier != taxonomy.TierP1 {
+		t.Errorf("SliceMutation tier: got %s, want P1", e.Tier)
+	}
+	if e.Description == "" {
+		t.Error("SliceMutation description must not be empty")
 	}
 }
 
@@ -442,5 +444,48 @@ func TestAnalyzeP1Effects_Direct_WriteToStructMap(t *testing.T) {
 				t.Error("MapMutation description must not be empty")
 			}
 		}
+	}
+}
+
+// TestAnalyzeP1Effects_PartialResponseWriter verifies that a type with
+// Write + Header but NOT WriteHeader produces WriterOutput (it satisfies
+// io.Writer) but does NOT produce HTTPResponseWrite.
+func TestAnalyzeP1Effects_PartialResponseWriter(t *testing.T) {
+	pkg := loadTestPackage(t, "p1effects")
+	fd := analysis.FindFuncDecl(pkg, "HandlePartialRW")
+	if fd == nil {
+		t.Fatal("HandlePartialRW not found in p1effects package")
+	}
+
+	effects := analysis.AnalyzeP1Effects(pkg.Fset, pkg.TypesInfo, fd, pkg.PkgPath, "HandlePartialRW")
+
+	if hasEffect(effects, taxonomy.HTTPResponseWrite) {
+		t.Error("PartialResponseWriter (missing WriteHeader) must not produce HTTPResponseWrite")
+	}
+	if !hasEffect(effects, taxonomy.WriterOutput) {
+		t.Error("PartialResponseWriter has valid Write([]byte)(int,error) — expected WriterOutput")
+	}
+}
+
+// TestAnalyzeP1Effects_WrongWriteReturn verifies that a type whose Write
+// method returns only int (not (int, error)) is not classified as either
+// io.Writer or http.ResponseWriter.
+func TestAnalyzeP1Effects_WrongWriteReturn(t *testing.T) {
+	pkg := loadTestPackage(t, "p1effects")
+	fd := analysis.FindFuncDecl(pkg, "HandleWrongWriteReturn")
+	if fd == nil {
+		t.Fatal("HandleWrongWriteReturn not found in p1effects package")
+	}
+
+	effects := analysis.AnalyzeP1Effects(pkg.Fset, pkg.TypesInfo, fd, pkg.PkgPath, "HandleWrongWriteReturn")
+
+	if len(effects) != 0 {
+		t.Errorf("expected no effects for WrongWriteReturn, got %d: %v", len(effects), effects)
+	}
+	if hasEffect(effects, taxonomy.HTTPResponseWrite) {
+		t.Error("WrongWriteReturn must not produce HTTPResponseWrite — Write signature mismatch")
+	}
+	if hasEffect(effects, taxonomy.WriterOutput) {
+		t.Error("WrongWriteReturn must not produce WriterOutput — Write([]byte) int is not io.Writer")
 	}
 }
