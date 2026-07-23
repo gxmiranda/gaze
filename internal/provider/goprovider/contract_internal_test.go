@@ -3,6 +3,7 @@ package goprovider
 import (
 	"bytes"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -10,6 +11,7 @@ import (
 
 	"github.com/unbound-force/gaze/internal/analysis"
 	"github.com/unbound-force/gaze/internal/config"
+	"github.com/unbound-force/gaze/internal/crap"
 	"github.com/unbound-force/gaze/internal/quality"
 	"github.com/unbound-force/gaze/internal/taxonomy"
 )
@@ -630,5 +632,231 @@ func TestLoadTestPackage_NonExistent(t *testing.T) {
 	_, err := LoadTestPackage("github.com/nonexistent/does-not-exist")
 	if err == nil {
 		t.Fatal("expected error for non-existent package")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// buildContractCoverageFuncImpl DI tests (Task 2.2 / 2.3)
+// ---------------------------------------------------------------------------
+
+// successBCCFDeps returns a buildContractCoverageFuncDeps with synthetic
+// implementations that simulate a successful pipeline. The effects set
+// contains "pkg:DoWork" and the coverage map contains "pkg:DoWork" at 75%.
+func successBCCFDeps() buildContractCoverageFuncDeps {
+	return buildContractCoverageFuncDeps{
+		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
+			return []string{"example.com/pkg"}, nil
+		},
+		loadConfig: func(_ string) *config.GazeConfig {
+			return config.DefaultConfig()
+		},
+		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
+			return map[string]bool{"pkg:DoWork": true}
+		},
+		buildCoverageMapFn: func(_ []string, _ string, _ *config.GazeConfig, _ io.Writer, _ ...contractCoverageDeps) (map[string]crap.ContractCoverageInfo, []string) {
+			return map[string]crap.ContractCoverageInfo{
+				"pkg:DoWork": {Percentage: 75.0},
+			}, nil
+		},
+	}
+}
+
+func TestBuildContractCoverageFuncImpl_ResolveError(t *testing.T) {
+	deps := buildContractCoverageFuncDeps{
+		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
+			return nil, errors.New("resolve failed")
+		},
+	}
+	var stderr bytes.Buffer
+	fn, degraded := buildContractCoverageFuncImpl(
+		[]string{"./..."}, ".", &stderr, deps,
+	)
+	if fn != nil {
+		t.Fatal("expected nil function when resolve fails")
+	}
+	if degraded != nil {
+		t.Errorf("expected nil degradedPkgs, got %v", degraded)
+	}
+	if !strings.Contains(stderr.String(), "failed to resolve packages") {
+		t.Errorf("expected stderr to contain resolve error, got %q", stderr.String())
+	}
+}
+
+func TestBuildContractCoverageFuncImpl_EmptyPkgPaths(t *testing.T) {
+	deps := buildContractCoverageFuncDeps{
+		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
+			return []string{}, nil
+		},
+	}
+	var stderr bytes.Buffer
+	fn, degraded := buildContractCoverageFuncImpl(
+		[]string{"./..."}, ".", &stderr, deps,
+	)
+	if fn != nil {
+		t.Fatal("expected nil function for empty package paths")
+	}
+	if degraded != nil {
+		t.Errorf("expected nil degradedPkgs, got %v", degraded)
+	}
+}
+
+func TestBuildContractCoverageFuncImpl_BothMapsEmpty(t *testing.T) {
+	deps := buildContractCoverageFuncDeps{
+		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
+			return []string{"example.com/pkg"}, nil
+		},
+		loadConfig: func(_ string) *config.GazeConfig {
+			return config.DefaultConfig()
+		},
+		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
+			return map[string]bool{}
+		},
+		buildCoverageMapFn: func(_ []string, _ string, _ *config.GazeConfig, _ io.Writer, _ ...contractCoverageDeps) (map[string]crap.ContractCoverageInfo, []string) {
+			return map[string]crap.ContractCoverageInfo{}, []string{"example.com/pkg"}
+		},
+	}
+	var stderr bytes.Buffer
+	fn, degraded := buildContractCoverageFuncImpl(
+		[]string{"./..."}, ".", &stderr, deps,
+	)
+	if fn != nil {
+		t.Fatal("expected nil function when both maps are empty")
+	}
+	if len(degraded) != 1 || degraded[0] != "example.com/pkg" {
+		t.Errorf("expected degradedPkgs=[example.com/pkg], got %v", degraded)
+	}
+}
+
+func TestBuildContractCoverageFuncImpl_ClosureFound(t *testing.T) {
+	deps := successBCCFDeps()
+	var stderr bytes.Buffer
+	fn, _ := buildContractCoverageFuncImpl(
+		[]string{"./..."}, ".", &stderr, deps,
+	)
+	if fn == nil {
+		t.Fatal("expected non-nil closure")
+	}
+	info, ok := fn("pkg", "DoWork")
+	if !ok {
+		t.Fatal("expected ok=true for known function")
+	}
+	if info.Percentage != 75.0 {
+		t.Errorf("expected 75.0%% coverage, got %.1f%%", info.Percentage)
+	}
+}
+
+func TestBuildContractCoverageFuncImpl_ClosureNoTestCoverage(t *testing.T) {
+	deps := buildContractCoverageFuncDeps{
+		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
+			return []string{"example.com/pkg"}, nil
+		},
+		loadConfig: func(_ string) *config.GazeConfig {
+			return config.DefaultConfig()
+		},
+		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
+			return map[string]bool{"pkg:Untested": true}
+		},
+		buildCoverageMapFn: func(_ []string, _ string, _ *config.GazeConfig, _ io.Writer, _ ...contractCoverageDeps) (map[string]crap.ContractCoverageInfo, []string) {
+			// Coverage map has at least one entry so
+			// len(coverageMap)==0 && len(effectsSet)==0 is false.
+			return map[string]crap.ContractCoverageInfo{
+				"pkg:Other": {Percentage: 50.0},
+			}, nil
+		},
+	}
+	var stderr bytes.Buffer
+	fn, _ := buildContractCoverageFuncImpl(
+		[]string{"./..."}, ".", &stderr, deps,
+	)
+	if fn == nil {
+		t.Fatal("expected non-nil closure")
+	}
+	info, ok := fn("pkg", "Untested")
+	if ok {
+		t.Fatal("expected ok=false for function with effects but no coverage")
+	}
+	if info.Reason != "no_test_coverage" {
+		t.Errorf("expected Reason=%q, got %q", "no_test_coverage", info.Reason)
+	}
+}
+
+func TestBuildContractCoverageFuncImpl_ClosureNoEffects(t *testing.T) {
+	deps := successBCCFDeps()
+	var stderr bytes.Buffer
+	fn, _ := buildContractCoverageFuncImpl(
+		[]string{"./..."}, ".", &stderr, deps,
+	)
+	if fn == nil {
+		t.Fatal("expected non-nil closure")
+	}
+	info, ok := fn("pkg", "Unknown")
+	if ok {
+		t.Fatal("expected ok=false for unknown function")
+	}
+	if info.Reason != "no_effects_detected" {
+		t.Errorf("expected Reason=%q, got %q", "no_effects_detected", info.Reason)
+	}
+}
+
+func TestBuildContractCoverageFuncImpl_HappyPath(t *testing.T) {
+	deps := buildContractCoverageFuncDeps{
+		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
+			return []string{"example.com/pkg"}, nil
+		},
+		loadConfig: func(_ string) *config.GazeConfig {
+			return config.DefaultConfig()
+		},
+		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
+			return map[string]bool{"pkg:DoWork": true, "pkg:Helper": true}
+		},
+		buildCoverageMapFn: func(_ []string, _ string, _ *config.GazeConfig, _ io.Writer, _ ...contractCoverageDeps) (map[string]crap.ContractCoverageInfo, []string) {
+			return map[string]crap.ContractCoverageInfo{
+				"pkg:DoWork": {Percentage: 80.0},
+			}, []string{"example.com/degraded"}
+		},
+	}
+	var stderr bytes.Buffer
+	fn, degraded := buildContractCoverageFuncImpl(
+		[]string{"./..."}, ".", &stderr, deps,
+	)
+	if fn == nil {
+		t.Fatal("expected non-nil closure")
+	}
+
+	// Verify degraded packages are passed through.
+	if len(degraded) != 1 || degraded[0] != "example.com/degraded" {
+		t.Errorf("expected degradedPkgs=[example.com/degraded], got %v", degraded)
+	}
+
+	// Verify stderr contains completion message.
+	if !strings.Contains(stderr.String(), "quality pipeline complete") {
+		t.Errorf("expected completion message in stderr, got %q", stderr.String())
+	}
+
+	// Verify closure: known function returns coverage.
+	info, ok := fn("pkg", "DoWork")
+	if !ok {
+		t.Fatal("expected ok=true for DoWork")
+	}
+	if info.Percentage != 80.0 {
+		t.Errorf("expected 80.0%%, got %.1f%%", info.Percentage)
+	}
+
+	// Verify closure: function with effects but no coverage.
+	info, ok = fn("pkg", "Helper")
+	if ok {
+		t.Fatal("expected ok=false for Helper (has effects, no coverage)")
+	}
+	if info.Reason != "no_test_coverage" {
+		t.Errorf("expected Reason=%q, got %q", "no_test_coverage", info.Reason)
+	}
+
+	// Verify closure: unknown function returns no_effects_detected.
+	info, ok = fn("pkg", "Missing")
+	if ok {
+		t.Fatal("expected ok=false for Missing")
+	}
+	if info.Reason != "no_effects_detected" {
+		t.Errorf("expected Reason=%q, got %q", "no_effects_detected", info.Reason)
 	}
 }
