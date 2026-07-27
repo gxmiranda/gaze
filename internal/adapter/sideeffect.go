@@ -1,6 +1,7 @@
 package adapter
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -145,6 +146,19 @@ func (a *ExternalSideEffectAnalyzer) loadStreaming() error {
 		return fmt.Errorf("analyze/stream protocol call: %w", err)
 	}
 
+	funcs, err := parseSideEffectStream(scanner)
+	if err != nil {
+		return err
+	}
+
+	a.cached = convertAnalysisResults(funcs, a.stderr)
+	return nil
+}
+
+// parseSideEffectStream reads JSONL-encoded AnalyzedFunction records
+// from scanner. Empty lines are skipped. Malformed lines cause a
+// fail-fast error with line number context and a truncated excerpt.
+func parseSideEffectStream(scanner *bufio.Scanner) ([]protocol.AnalyzedFunction, error) {
 	var funcs []protocol.AnalyzedFunction
 	lineNum := 0
 	for scanner.Scan() {
@@ -156,17 +170,15 @@ func (a *ExternalSideEffectAnalyzer) loadStreaming() error {
 
 		var fn protocol.AnalyzedFunction
 		if uerr := json.Unmarshal(line, &fn); uerr != nil {
-			return fmt.Errorf("malformed JSONL on line %d: %w (content: %s)",
+			return nil, fmt.Errorf("malformed JSONL on line %d: %w (content: %s)",
 				lineNum, uerr, truncateBytes(line, 200))
 		}
 		funcs = append(funcs, fn)
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
-		return fmt.Errorf("reading analyze/stream response: %w", scanErr)
+		return nil, fmt.Errorf("reading analyze/stream response: %w", scanErr)
 	}
-
-	a.cached = convertAnalysisResults(funcs, a.stderr)
-	return nil
+	return funcs, nil
 }
 
 // truncateBytes returns the first n bytes as a string, appending

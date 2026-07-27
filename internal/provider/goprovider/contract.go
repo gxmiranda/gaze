@@ -79,6 +79,17 @@ func (p *GoContractCoverageProvider) Build(
 	return ccFunc, degradedPkgs, nil
 }
 
+// buildContractCoverageFuncDeps holds injectable dependencies for
+// buildContractCoverageFuncImpl, enabling unit testing with synthetic
+// implementations instead of calling real package resolution, config
+// loading, and side effect analysis.
+type buildContractCoverageFuncDeps struct {
+	resolvePackagePaths func([]string, string, io.Writer) ([]string, error)
+	loadConfig          func(string) *config.GazeConfig
+	buildEffectsSetFn   func([]string, func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool
+	buildCoverageMapFn  func([]string, string, *config.GazeConfig, io.Writer, ...contractCoverageDeps) (map[string]crap.ContractCoverageInfo, []string)
+}
+
 // BuildContractCoverageFunc runs the quality pipeline across the
 // given package patterns and returns a contract coverage callback
 // for GazeCRAP scoring. This is best-effort: if the quality pipeline
@@ -98,7 +109,37 @@ func BuildContractCoverageFunc(
 	stderr io.Writer,
 	aiMapperFn ...quality.AIMapperFunc,
 ) (func(pkg, function string) (crap.ContractCoverageInfo, bool), []string) {
-	pkgPaths, err := loader.ResolvePackagePaths(patterns, moduleDir, stderr)
+	return buildContractCoverageFuncImpl(patterns, moduleDir, stderr, buildContractCoverageFuncDeps{}, aiMapperFn...)
+}
+
+// buildContractCoverageFuncImpl is the injectable implementation of
+// BuildContractCoverageFunc. When deps fields are nil, production
+// implementations are used.
+func buildContractCoverageFuncImpl(
+	patterns []string,
+	moduleDir string,
+	stderr io.Writer,
+	deps buildContractCoverageFuncDeps,
+	aiMapperFn ...quality.AIMapperFunc,
+) (func(pkg, function string) (crap.ContractCoverageInfo, bool), []string) {
+	resolvePaths := deps.resolvePackagePaths
+	if resolvePaths == nil {
+		resolvePaths = loader.ResolvePackagePaths
+	}
+	loadCfg := deps.loadConfig
+	if loadCfg == nil {
+		loadCfg = config.LoadFromDir
+	}
+	buildEffects := deps.buildEffectsSetFn
+	if buildEffects == nil {
+		buildEffects = buildEffectsSet
+	}
+	buildCovMap := deps.buildCoverageMapFn
+	if buildCovMap == nil {
+		buildCovMap = buildCoverageMap
+	}
+
+	pkgPaths, err := resolvePaths(patterns, moduleDir, stderr)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "quality pipeline: failed to resolve packages: %v\n", err)
 		return nil, nil
@@ -109,19 +150,19 @@ func BuildContractCoverageFunc(
 	}
 
 	// Load config once for all packages.
-	gazeConfig := config.LoadFromDir(moduleDir)
+	gazeConfig := loadCfg(moduleDir)
 
 	// Build effects set: functions with >0 detected side effects,
 	// regardless of whether they have test coverage. Used to
 	// distinguish "no_test_coverage" from "no_effects_detected"
 	// when a function is absent from the coverage map.
-	effectsSet := buildEffectsSet(pkgPaths, nil)
+	effectsSet := buildEffects(pkgPaths, nil)
 
 	// Build coverage map via quality pipeline.
 	ccDeps := contractCoverageDeps{
 		aiMapperFn: firstAIMapper(aiMapperFn),
 	}
-	coverageMap, degradedPkgs := buildCoverageMap(pkgPaths, moduleDir, gazeConfig, stderr, ccDeps)
+	coverageMap, degradedPkgs := buildCovMap(pkgPaths, moduleDir, gazeConfig, stderr, ccDeps)
 
 	if len(coverageMap) == 0 && len(effectsSet) == 0 {
 		return nil, degradedPkgs

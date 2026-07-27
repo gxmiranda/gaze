@@ -117,10 +117,6 @@ func TestLoad_MultiPackagePattern_ReturnsFirst(t *testing.T) {
 }
 
 func TestResolvePackagePaths_Wildcard(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping slow test: loads real Go module via go/packages")
-	}
-
 	root := findModuleRoot(t)
 	paths, err := loader.ResolvePackagePaths([]string{"./..."}, root, nil)
 	if err != nil {
@@ -148,10 +144,6 @@ func TestResolvePackagePaths_Wildcard(t *testing.T) {
 }
 
 func TestResolvePackagePaths_SinglePackage(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping slow test: loads real Go module via go/packages")
-	}
-
 	root := findModuleRoot(t)
 	paths, err := loader.ResolvePackagePaths(
 		[]string{"github.com/unbound-force/gaze/internal/loader"}, root, nil,
@@ -179,10 +171,6 @@ func TestResolvePackagePaths_EmptyPatterns(t *testing.T) {
 }
 
 func TestResolvePackagePaths_InvalidPattern(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping slow test: loads package via go/packages")
-	}
-
 	root := findModuleRoot(t)
 	var buf bytes.Buffer
 	paths, err := loader.ResolvePackagePaths(
@@ -206,10 +194,6 @@ func TestResolvePackagePaths_InvalidPattern(t *testing.T) {
 }
 
 func TestResolvePackagePaths_MixedValidAndInvalid(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping slow test: loads packages via go/packages")
-	}
-
 	root := findModuleRoot(t)
 	var buf bytes.Buffer
 	paths, err := loader.ResolvePackagePaths(
@@ -240,6 +224,48 @@ func TestResolvePackagePaths_MixedValidAndInvalid(t *testing.T) {
 	// The valid package should not appear in warnings.
 	if strings.Contains(stderr, "github.com/unbound-force/gaze/internal/loader") {
 		t.Errorf("valid package should not appear in warnings, got %q", stderr)
+	}
+}
+
+func TestResolvePackagePaths_NilStderrWithErrors(t *testing.T) {
+	root := findModuleRoot(t)
+	// Pass nil stderr with a mix of valid and invalid patterns.
+	// The invalid pattern produces pkg.Errors inside packages.Load;
+	// ResolvePackagePaths must not panic when stderr is nil.
+	paths, err := loader.ResolvePackagePaths(
+		[]string{
+			"github.com/unbound-force/gaze/internal/loader",
+			"nonexistent/invalid/pkg",
+		}, root, nil,
+	)
+	if err != nil {
+		t.Fatalf("ResolvePackagePaths returned unexpected error: %v", err)
+	}
+
+	// The invalid package must be excluded from results.
+	for _, p := range paths {
+		if strings.Contains(p, "nonexistent") {
+			t.Errorf("invalid package should be excluded, got %q", p)
+		}
+	}
+}
+
+func TestResolvePackagePaths_DuplicatePatterns(t *testing.T) {
+	root := findModuleRoot(t)
+	paths, err := loader.ResolvePackagePaths(
+		[]string{
+			"github.com/unbound-force/gaze/internal/loader",
+			"github.com/unbound-force/gaze/internal/loader",
+		}, root, nil,
+	)
+	if err != nil {
+		t.Fatalf("ResolvePackagePaths returned unexpected error: %v", err)
+	}
+	if len(paths) != 1 {
+		t.Fatalf("expected exactly 1 deduplicated path, got %d: %v", len(paths), paths)
+	}
+	if paths[0] != "github.com/unbound-force/gaze/internal/loader" {
+		t.Errorf("unexpected path: %q", paths[0])
 	}
 }
 

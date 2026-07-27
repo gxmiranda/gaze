@@ -1,7 +1,9 @@
 package adapter
 
 import (
+	"bufio"
 	"bytes"
+	"io"
 	"strings"
 	"testing"
 
@@ -194,5 +196,137 @@ func TestConvertAnalysisResults_NilDetail(t *testing.T) {
 	}
 	if results[0].SideEffects[0].Detail != nil {
 		t.Errorf("Detail = %v, want nil", results[0].SideEffects[0].Detail)
+	}
+}
+
+// TestParseSideEffectStream_ValidJSONL verifies that valid JSONL
+// input produces the expected AnalyzedFunction slice.
+func TestParseSideEffectStream_ValidJSONL(t *testing.T) {
+	input := `{"package":"math_utils","name":"divide","file":"math.py","line":1,"side_effects":[{"type":"ErrorReturn","description":"division error"}]}
+{"package":"math_utils","name":"multiply","file":"math.py","line":10,"side_effects":[]}
+{"package":"strings","name":"trim","file":"str.py","line":5,"side_effects":[{"type":"ReturnValue","description":"trimmed string"}]}
+`
+	scanner := bufio.NewScanner(bytes.NewReader([]byte(input)))
+	funcs, err := parseSideEffectStream(scanner)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(funcs) != 3 {
+		t.Fatalf("got %d functions, want 3", len(funcs))
+	}
+
+	// Verify package and name fields for each function.
+	want := []struct{ pkg, name string }{
+		{"math_utils", "divide"},
+		{"math_utils", "multiply"},
+		{"strings", "trim"},
+	}
+	for i, w := range want {
+		if funcs[i].Package != w.pkg {
+			t.Errorf("funcs[%d].Package = %q, want %q", i, funcs[i].Package, w.pkg)
+		}
+		if funcs[i].Name != w.name {
+			t.Errorf("funcs[%d].Name = %q, want %q", i, funcs[i].Name, w.name)
+		}
+	}
+}
+
+// TestParseSideEffectStream_EmptyStream verifies that an empty
+// reader produces no results and no error.
+func TestParseSideEffectStream_EmptyStream(t *testing.T) {
+	scanner := bufio.NewScanner(bytes.NewReader([]byte{}))
+	funcs, err := parseSideEffectStream(scanner)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(funcs) != 0 {
+		t.Errorf("got %d functions, want 0", len(funcs))
+	}
+}
+
+// TestParseSideEffectStream_EmptyLinesSkipped verifies that empty
+// lines interspersed with valid JSONL are skipped.
+func TestParseSideEffectStream_EmptyLinesSkipped(t *testing.T) {
+	input := "\n\n" + `{"package":"a","name":"b","file":"a.py","line":1}` + "\n\n"
+	scanner := bufio.NewScanner(bytes.NewReader([]byte(input)))
+	funcs, err := parseSideEffectStream(scanner)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(funcs) != 1 {
+		t.Fatalf("got %d functions, want 1", len(funcs))
+	}
+	if funcs[0].Package != "a" {
+		t.Errorf("Package = %q, want %q", funcs[0].Package, "a")
+	}
+	if funcs[0].Name != "b" {
+		t.Errorf("Name = %q, want %q", funcs[0].Name, "b")
+	}
+}
+
+// TestParseSideEffectStream_MalformedJSON verifies that a malformed
+// JSON line produces a fail-fast error with line number context.
+func TestParseSideEffectStream_MalformedJSON(t *testing.T) {
+	input := `{"package":"ok","name":"f1","file":"a.py","line":1}
+{bad
+`
+	scanner := bufio.NewScanner(bytes.NewReader([]byte(input)))
+	_, err := parseSideEffectStream(scanner)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "malformed JSONL on line 2") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "malformed JSONL on line 2")
+	}
+}
+
+// TestParseSideEffectStream_LongLineTruncated verifies that a
+// malformed JSON line exceeding 200 bytes is truncated in the
+// error message.
+func TestParseSideEffectStream_LongLineTruncated(t *testing.T) {
+	// Build a malformed JSON line longer than 200 bytes.
+	long := "{" + strings.Repeat("x", 250)
+	scanner := bufio.NewScanner(bytes.NewReader([]byte(long + "\n")))
+	_, err := parseSideEffectStream(scanner)
+	if err == nil {
+		t.Fatal("expected error for malformed JSON, got nil")
+	}
+	if !strings.Contains(err.Error(), "...") {
+		t.Errorf("error = %q, want it to contain truncation marker \"...\"", err.Error())
+	}
+}
+
+// errReader is an io.Reader that returns io.ErrUnexpectedEOF after
+// delivering its initial data.
+type errReader struct {
+	data []byte
+	pos  int
+}
+
+func (r *errReader) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.ErrUnexpectedEOF
+	}
+	n := copy(p, r.data[r.pos:])
+	r.pos += n
+	return n, nil
+}
+
+// TestParseSideEffectStream_ScannerError verifies that an underlying
+// reader error is surfaced with the expected error message.
+func TestParseSideEffectStream_ScannerError(t *testing.T) {
+	// Provide a valid first line so the scanner consumes it, then
+	// fail with io.ErrUnexpectedEOF on the next read. The valid
+	// line must be followed by a newline so the scanner yields it
+	// successfully before attempting another read.
+	validLine := `{"package":"a","name":"b","file":"a.py","line":1}` + "\n"
+	reader := &errReader{data: []byte(validLine)}
+	scanner := bufio.NewScanner(reader)
+	_, err := parseSideEffectStream(scanner)
+	if err == nil {
+		t.Fatal("expected error from scanner, got nil")
+	}
+	if !strings.Contains(err.Error(), "reading analyze/stream response") {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), "reading analyze/stream response")
 	}
 }
