@@ -29,7 +29,8 @@ func TestRunCRAPStep_RealPackage(t *testing.T) {
 		modRoot,
 		"", // no pre-generated profile — use internal generation
 		io.Discard,
-		nil, // no contract coverage callback
+		nil,   // no contract coverage callback
+		false, // short
 	)
 	if err != nil {
 		t.Fatalf("runCRAPStep: %v", err)
@@ -78,7 +79,8 @@ func TestRunCRAPStep_WithCoverProfile(t *testing.T) {
 		modRoot,
 		fixture,
 		io.Discard,
-		nil, // no contract coverage callback
+		nil,   // no contract coverage callback
+		false, // short
 	)
 	if err != nil {
 		t.Fatalf("runCRAPStep with coverprofile: %v", err)
@@ -102,7 +104,8 @@ func TestRunProductionPipeline_RealPackage(t *testing.T) {
 	payload, err := runProductionPipeline(
 		[]string{"github.com/unbound-force/gaze/internal/config"},
 		modRoot,
-		"", // no pre-generated profile — use internal generation
+		"",    // no pre-generated profile — use internal generation
+		false, // testShort
 		io.Discard,
 		pipelineStepFuncs{}, // zero value = real step functions
 	)

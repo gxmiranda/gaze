@@ -14,7 +14,7 @@ import (
 // synthetic success results. Individual steps can be overridden after.
 func fakeSteps() pipelineStepFuncs {
 	return pipelineStepFuncs{
-		crapStep: func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
+		crapStep: func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider, _ bool) (*crapStepResult, error) {
 			return &crapStepResult{
 				JSON:           json.RawMessage(`{"crap":"ok"}`),
 				CRAPload:       5,
@@ -46,7 +46,7 @@ func TestRunProductionPipeline_AllStepsSucceed(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestRunProductionPipeline_AllStepsSucceed(t *testing.T) {
 func TestRunProductionPipeline_CRAPStepSSADegradation(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
-	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
+	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider, _ bool) (*crapStepResult, error) {
 		return &crapStepResult{
 			JSON:                json.RawMessage(`{"crap":"ok"}`),
 			CRAPload:            5,
@@ -112,7 +112,7 @@ func TestRunProductionPipeline_CRAPStepSSADegradation(t *testing.T) {
 		}, nil
 	}
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -137,11 +137,11 @@ func TestRunProductionPipeline_CRAPStepSSADegradation(t *testing.T) {
 func TestRunProductionPipeline_CRAPStepFails(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
-	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
+	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider, _ bool) (*crapStepResult, error) {
 		return nil, fmt.Errorf("crap analysis failed")
 	}
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("pipeline should not return error on step failure, got: %v", err)
 	}
@@ -173,7 +173,7 @@ func TestRunProductionPipeline_QualityStepFails(t *testing.T) {
 		return nil, fmt.Errorf("quality analysis failed")
 	}
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("pipeline should not return error on step failure, got: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestRunProductionPipeline_ClassifyStepFails(t *testing.T) {
 		return nil, fmt.Errorf("classify failed")
 	}
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("pipeline should not return error on step failure, got: %v", err)
 	}
@@ -222,7 +222,7 @@ func TestRunProductionPipeline_DocscanStepFails(t *testing.T) {
 		return nil, fmt.Errorf("docscan failed")
 	}
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("pipeline should not return error on step failure, got: %v", err)
 	}
@@ -244,14 +244,14 @@ func TestRunProductionPipeline_DocscanStepFails(t *testing.T) {
 func TestRunProductionPipeline_MultipleStepsFail(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
-	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
+	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider, _ bool) (*crapStepResult, error) {
 		return nil, fmt.Errorf("crap failed")
 	}
 	steps.qualityStep = func(_ []string, _ string, _ io.Writer, _ ...qualityPipelineDeps) (*qualityStepResult, error) {
 		return nil, fmt.Errorf("quality failed")
 	}
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("pipeline should not return error on step failures, got: %v", err)
 	}
@@ -279,12 +279,12 @@ func TestRunProductionPipeline_EmptyPatterns(t *testing.T) {
 
 	// Track whether any step was called.
 	called := false
-	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
+	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider, _ bool) (*crapStepResult, error) {
 		called = true
 		return nil, nil
 	}
 
-	_, err := runProductionPipeline([]string{}, "/tmp", "", &stderr, steps)
+	_, err := runProductionPipeline([]string{}, "/tmp", "", false, &stderr, steps)
 	if err == nil {
 		t.Fatal("expected error for empty patterns")
 	}
@@ -303,7 +303,7 @@ func TestRunProductionPipeline_GazeCRAPloadFlowsThroughPipeline(t *testing.T) {
 	steps := fakeSteps()
 
 	// Override crapStep to return a known GazeCRAPload value.
-	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider) (*crapStepResult, error) {
+	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider, _ bool) (*crapStepResult, error) {
 		return &crapStepResult{
 			JSON:           json.RawMessage(`{"crap":"ok"}`),
 			CRAPload:       2,
@@ -312,7 +312,7 @@ func TestRunProductionPipeline_GazeCRAPloadFlowsThroughPipeline(t *testing.T) {
 		}, nil
 	}
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -326,7 +326,7 @@ func TestRunProductionPipeline_SummaryFields(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
 
-	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", &stderr, steps)
+	payload, err := runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
 	if err != nil {
 		t.Fatalf("expected nil error, got: %v", err)
 	}
@@ -339,6 +339,46 @@ func TestRunProductionPipeline_SummaryFields(t *testing.T) {
 	}
 	if payload.Summary.AvgContractCoverage != 85 {
 		t.Errorf("expected AvgContractCoverage 85, got %d", payload.Summary.AvgContractCoverage)
+	}
+}
+
+// TestRunProductionPipeline_TestShortThreadsToStep verifies that the
+// testShort parameter flows through runProductionPipeline to the crapStep
+// function. This ensures --test-short on the report command reaches the
+// line coverage provider.
+func TestRunProductionPipeline_TestShortThreadsToStep(t *testing.T) {
+	var stderr bytes.Buffer
+	steps := fakeSteps()
+
+	// Capture the short parameter passed to crapStep.
+	var capturedShort bool
+	steps.crapStep = func(_ []string, _ string, _ string, _ io.Writer, _ crap.ContractCoverageProvider, short bool) (*crapStepResult, error) {
+		capturedShort = short
+		return &crapStepResult{
+			JSON:           json.RawMessage(`{"crap":"ok"}`),
+			CRAPload:       1,
+			GazeCRAPload:   intPtr(0),
+			TotalFunctions: 5,
+		}, nil
+	}
+
+	// Pass testShort=true and verify it reaches the step.
+	_, err := runProductionPipeline([]string{"./..."}, "/tmp", "", true, &stderr, steps)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if !capturedShort {
+		t.Error("expected testShort=true to be passed to crapStep, got false")
+	}
+
+	// Pass testShort=false and verify it reaches the step.
+	capturedShort = true // reset to non-default
+	_, err = runProductionPipeline([]string{"./..."}, "/tmp", "", false, &stderr, steps)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if capturedShort {
+		t.Error("expected testShort=false to be passed to crapStep, got true")
 	}
 }
 

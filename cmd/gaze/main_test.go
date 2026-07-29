@@ -1430,14 +1430,18 @@ func TestRunSelfCheck_InvalidFormat(t *testing.T) {
 }
 
 func TestRunSelfCheck_TextFormat(t *testing.T) {
+	if os.Getenv("GAZE_COVERAGE_RUN") != "" {
+		t.Skip("skipping: GAZE_COVERAGE_RUN set (recursion guard)")
+	}
 	if testing.Short() {
 		t.Skip("skipping self-check in short mode")
 	}
 	var stdout, stderr bytes.Buffer
 	err := runSelfCheck(selfCheckParams{
-		format: "text",
-		stdout: &stdout,
-		stderr: &stderr,
+		format:    "text",
+		testShort: true, // match CLI default for self-check
+		stdout:    &stdout,
+		stderr:    &stderr,
 	})
 	if err != nil {
 		t.Fatalf("self-check text failed: %v", err)
@@ -1448,14 +1452,18 @@ func TestRunSelfCheck_TextFormat(t *testing.T) {
 }
 
 func TestRunSelfCheck_JSONFormat(t *testing.T) {
+	if os.Getenv("GAZE_COVERAGE_RUN") != "" {
+		t.Skip("skipping: GAZE_COVERAGE_RUN set (recursion guard)")
+	}
 	if testing.Short() {
 		t.Skip("skipping self-check in short mode")
 	}
 	var stdout, stderr bytes.Buffer
 	err := runSelfCheck(selfCheckParams{
-		format: "json",
-		stdout: &stdout,
-		stderr: &stderr,
+		format:    "json",
+		testShort: true, // match CLI default for self-check
+		stdout:    &stdout,
+		stderr:    &stderr,
 	})
 	if err != nil {
 		t.Fatalf("self-check json failed: %v", err)
@@ -2573,5 +2581,184 @@ func TestBuildAIMapperFunc_OllamaWithModel(t *testing.T) {
 	}
 	if fn == nil {
 		t.Fatal("expected non-nil AIMapperFunc for ollama with model")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// --test-short flag wiring tests (fix-hardcoded-short-flag Phase 2)
+// ---------------------------------------------------------------------------
+
+// TestCrapCmd_TestShortFlag verifies that the --test-short flag is
+// recognized by the crap command and sets Short on the
+// GoLineCoverageProvider. Uses cobra flag parsing to exercise the
+// full newCrapCmd wiring.
+func TestCrapCmd_TestShortFlag(t *testing.T) {
+	cmd := newCrapCmd()
+	// Verify the flag exists and has the expected default.
+	f := cmd.Flags().Lookup("test-short")
+	if f == nil {
+		t.Fatal("expected --test-short flag on crap command")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("expected default value 'false', got %q", f.DefValue)
+	}
+	if f.Usage == "" {
+		t.Error("expected non-empty usage string for --test-short")
+	}
+}
+
+// TestRunCrap_TestShortThreadsToAnalyze verifies that when
+// crapParams.opts.LineCoverageProvider is a *GoLineCoverageProvider
+// with Short=true, the value reaches the analyzeFunc unchanged.
+func TestRunCrap_TestShortThreadsToAnalyze(t *testing.T) {
+	var capturedOpts crap.Options
+	lineProv := goprovider.NewLineCoverageProvider(&bytes.Buffer{})
+	lineProv.Short = true
+
+	opts := crap.DefaultOptions()
+	opts.LineCoverageProvider = lineProv
+
+	var stdout, stderr bytes.Buffer
+	err := runCrap(crapParams{
+		patterns:  []string{"./..."},
+		format:    "text",
+		opts:      opts,
+		moduleDir: ".",
+		stdout:    &stdout,
+		stderr:    &stderr,
+		analyzeFunc: func(_ []string, _ string, o crap.Options) (*crap.Report, error) {
+			capturedOpts = o
+			return &crap.Report{
+				Scores: []crap.Score{{Function: "Foo", Complexity: 1, LineCoverage: 100, CRAP: 1}},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runCrap returned error: %v", err)
+	}
+
+	prov, ok := capturedOpts.LineCoverageProvider.(*goprovider.GoLineCoverageProvider)
+	if !ok {
+		t.Fatalf("expected *GoLineCoverageProvider, got %T", capturedOpts.LineCoverageProvider)
+	}
+	if !prov.Short {
+		t.Error("expected GoLineCoverageProvider.Short=true to thread through to analyzeFunc")
+	}
+}
+
+// TestRunSelfCheck_TestShortThreadsToProvider verifies that when
+// selfCheckParams.testShort is true, the GoLineCoverageProvider
+// constructed in runSelfCheck has Short=true. Uses the runCrapFunc
+// injection to capture the constructed crapParams.
+func TestRunSelfCheck_TestShortThreadsToProvider(t *testing.T) {
+	var capturedOpts crap.Options
+	var stdout, stderr bytes.Buffer
+	err := runSelfCheck(selfCheckParams{
+		format:    "text",
+		testShort: true,
+		stdout:    &stdout,
+		stderr:    &stderr,
+		moduleRootFunc: func() (string, error) {
+			return "/fake/module/root", nil
+		},
+		runCrapFunc: func(p crapParams) error {
+			capturedOpts = p.opts
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runSelfCheck returned error: %v", err)
+	}
+
+	// The LineCoverageProvider should be a *GoLineCoverageProvider
+	// with Short=true.
+	prov, ok := capturedOpts.LineCoverageProvider.(*goprovider.GoLineCoverageProvider)
+	if !ok {
+		t.Fatalf("expected *GoLineCoverageProvider, got %T", capturedOpts.LineCoverageProvider)
+	}
+	if !prov.Short {
+		t.Error("expected GoLineCoverageProvider.Short=true when testShort=true")
+	}
+}
+
+// TestRunSelfCheck_TestShortFalseWhenExplicit verifies that when
+// selfCheckParams.testShort is explicitly false, the
+// GoLineCoverageProvider has Short=false.
+func TestRunSelfCheck_TestShortFalseWhenExplicit(t *testing.T) {
+	var capturedOpts crap.Options
+	var stdout, stderr bytes.Buffer
+	err := runSelfCheck(selfCheckParams{
+		format: "text",
+		// testShort not set — defaults to false
+		stdout: &stdout,
+		stderr: &stderr,
+		moduleRootFunc: func() (string, error) {
+			return "/fake/module/root", nil
+		},
+		runCrapFunc: func(p crapParams) error {
+			capturedOpts = p.opts
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runSelfCheck returned error: %v", err)
+	}
+
+	prov, ok := capturedOpts.LineCoverageProvider.(*goprovider.GoLineCoverageProvider)
+	if !ok {
+		t.Fatalf("expected *GoLineCoverageProvider, got %T", capturedOpts.LineCoverageProvider)
+	}
+	if prov.Short {
+		t.Error("expected GoLineCoverageProvider.Short=false when testShort not set")
+	}
+}
+
+// TestSelfCheckCmd_TestShortFlag verifies that the --test-short flag
+// is recognized by the self-check command.
+func TestSelfCheckCmd_TestShortFlag(t *testing.T) {
+	cmd := newSelfCheckCmd()
+	f := cmd.Flags().Lookup("test-short")
+	if f == nil {
+		t.Fatal("expected --test-short flag on self-check command")
+	}
+	if f.DefValue != "true" {
+		t.Errorf("expected default value 'true' for self-check, got %q", f.DefValue)
+	}
+}
+
+// TestRunReport_TestShortThreadsToRunnerOptions verifies that
+// reportParams.testShort threads to RunnerOptions.TestShort when
+// runReport calls the runner function.
+func TestRunReport_TestShortThreadsToRunnerOptions(t *testing.T) {
+	var capturedTestShort bool
+	err := runReport(reportParams{
+		patterns:  []string{"./..."},
+		format:    "json",
+		testShort: true,
+		stdout:    &bytes.Buffer{},
+		stderr:    &bytes.Buffer{},
+		runnerFunc: func(opts aireport.RunnerOptions) error {
+			capturedTestShort = opts.TestShort
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("runReport returned error: %v", err)
+	}
+	if !capturedTestShort {
+		t.Error("expected RunnerOptions.TestShort=true when reportParams.testShort=true")
+	}
+}
+
+// TestReportCmd_TestShortFlag verifies that the --test-short flag
+// is recognized by the report command.
+func TestReportCmd_TestShortFlag(t *testing.T) {
+	cmd := newReportCmd()
+	f := cmd.Flags().Lookup("test-short")
+	if f == nil {
+		t.Fatal("expected --test-short flag on report command")
+	}
+	if f.DefValue != "false" {
+		t.Errorf("expected default value 'false', got %q", f.DefValue)
 	}
 }
