@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/packages"
@@ -1019,5 +1020,387 @@ func f() {
 	tracked := map[types.Object]bool{xObj: true}
 	if matchTrackedInExpr(rhs, tracked, info) {
 		t.Error("matchTrackedInExpr should return false when no identifiers match tracked set")
+	}
+}
+
+// --- generateSuggestion tests ---
+
+// TestGenerateSuggestion verifies all 5 switch cases + default.
+func TestGenerateSuggestion(t *testing.T) {
+	tests := []struct {
+		name       string
+		effectType taxonomy.SideEffectType
+		desc       string
+		wantParts  []string
+	}{
+		{
+			name:       "LogWrite",
+			effectType: taxonomy.LogWrite,
+			desc:       "writes to logger",
+			wantParts:  []string{"log output", "implementation detail"},
+		},
+		{
+			name:       "StdoutWrite",
+			effectType: taxonomy.StdoutWrite,
+			desc:       "prints to stdout",
+			wantParts:  []string{"stdout"},
+		},
+		{
+			name:       "GoroutineSpawn",
+			effectType: taxonomy.GoroutineSpawn,
+			desc:       "spawns worker",
+			wantParts:  []string{"goroutine lifecycle", "concurrency detail"},
+		},
+		{
+			name:       "ContextCancellation",
+			effectType: taxonomy.ContextCancellation,
+			desc:       "cancels context",
+			wantParts:  []string{"context usage", "implementation detail"},
+		},
+		{
+			name:       "CallbackInvocation",
+			effectType: taxonomy.CallbackInvocation,
+			desc:       "invokes callback",
+			wantParts:  []string{"callback invocation", "implementation detail"},
+		},
+		{
+			name:       "Default_UnknownType",
+			effectType: taxonomy.SideEffectType("CustomEffect"),
+			desc:       "does something custom",
+			wantParts:  []string{"CustomEffect", "contract behavior"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := generateSuggestion(tt.effectType, tt.desc)
+			for _, part := range tt.wantParts {
+				if !strings.Contains(got, part) {
+					t.Errorf("generateSuggestion(%s, %q) = %q, want to contain %q",
+						tt.effectType, tt.desc, got, part)
+				}
+			}
+			// Verify the description appears in the output.
+			if !strings.Contains(got, tt.desc) {
+				t.Errorf("generateSuggestion(%s, %q) = %q, want to contain description %q",
+					tt.effectType, tt.desc, got, tt.desc)
+			}
+		})
+	}
+}
+
+// --- rhsReferencesAnyTracked tests ---
+
+// TestRhsReferencesAnyTracked_DirectMatch verifies direct containsObject path.
+func TestRhsReferencesAnyTracked_DirectMatch(t *testing.T) {
+	src := `package p
+func f() {
+	x := 1
+	y := x
+	_ = y
+}`
+	file, info := parseAndTypeCheck(t, src)
+	xObj := extractVarObj(t, file, info, 0, 0) // x := 1
+	rhs := extractRHS(t, file, 0, 1)           // x (RHS of y := x)
+
+	tracked := map[types.Object]bool{xObj: true}
+	if !rhsReferencesAnyTracked(rhs, tracked, info) {
+		t.Error("rhsReferencesAnyTracked should return true when tracked var is directly in RHS")
+	}
+}
+
+// TestRhsReferencesAnyTracked_ResolveExprRootFallback verifies resolveExprRoot path.
+func TestRhsReferencesAnyTracked_ResolveExprRootFallback(t *testing.T) {
+	src := `package p
+type S struct{ Field int }
+func f() {
+	x := S{Field: 1}
+	y := x.Field
+	_ = y
+}`
+	file, info := parseAndTypeCheck(t, src)
+	xObj := extractVarObj(t, file, info, 1, 0) // x := S{...} (func is Decls[1] after type decl)
+	rhs := extractRHS(t, file, 1, 1)           // x.Field
+
+	tracked := map[types.Object]bool{xObj: true}
+	if !rhsReferencesAnyTracked(rhs, tracked, info) {
+		t.Error("rhsReferencesAnyTracked should return true via resolveExprRoot for x.Field")
+	}
+}
+
+// TestRhsReferencesAnyTracked_NoMatch verifies false when no tracked var in RHS.
+func TestRhsReferencesAnyTracked_NoMatch(t *testing.T) {
+	src := `package p
+func f() {
+	x := 1
+	y := 2
+	_ = x
+	_ = y
+}`
+	file, info := parseAndTypeCheck(t, src)
+	xObj := extractVarObj(t, file, info, 0, 0) // x := 1
+	rhs := extractRHS(t, file, 0, 1)           // 2 (RHS of y := 2)
+
+	tracked := map[types.Object]bool{xObj: true}
+	if rhsReferencesAnyTracked(rhs, tracked, info) {
+		t.Error("rhsReferencesAnyTracked should return false when no tracked var in RHS")
+	}
+}
+
+// --- handleTransformationCalls tests ---
+
+// TestHandleTransformationCalls_TransformWithTrackedArg verifies transformation
+// call with tracked data returns the pointer destination.
+func TestHandleTransformationCalls_TransformWithTrackedArg(t *testing.T) {
+	// Use a local function stub matching the transformation pattern
+	// (byte-like param + pointer dest) instead of importing encoding/json.
+	src := `package p
+
+func unmarshal(data []byte, v *map[string]any) {}
+func f() {
+	data := []byte("{}")
+	var target map[string]any
+	unmarshal(data, &target)
+}`
+	file, info := parseAndTypeCheck(t, src)
+	dataObj := extractVarObj(t, file, info, 1, 0) // data := []byte("{}")
+
+	// Extract the unmarshal call (it's an ExprStmt, not AssignStmt).
+	call := extractCallFromFunc(t, file, 1, 2)
+
+	tracked := map[types.Object]bool{dataObj: true}
+	dest, handled := handleTransformationCalls(call, tracked, info)
+	if !handled {
+		t.Fatal("handleTransformationCalls should handle transformation call with tracked arg")
+	}
+	if dest == nil {
+		t.Fatal("handleTransformationCalls should return non-nil dest for pointer arg")
+	}
+	if dest.Name() != "target" {
+		t.Errorf("dest.Name() = %q, want %q", dest.Name(), "target")
+	}
+}
+
+// TestHandleTransformationCalls_NoTransformation verifies non-transformation call.
+func TestHandleTransformationCalls_NoTransformation(t *testing.T) {
+	src := `package p
+func add(a, b int) int { return a + b }
+func f() {
+	x := 1
+	add(x, 2)
+}`
+	file, info := parseAndTypeCheck(t, src)
+	xObj := extractVarObj(t, file, info, 1, 0) // x := 1
+
+	call := extractCallFromFunc(t, file, 1, 1) // add(x, 2)
+
+	tracked := map[types.Object]bool{xObj: true}
+	_, handled := handleTransformationCalls(call, tracked, info)
+	if handled {
+		t.Error("handleTransformationCalls should return handled=false for non-transformation call")
+	}
+}
+
+// TestHandleTransformationCalls_NoTrackedArg verifies transformation call
+// without tracked arg returns handled=false.
+func TestHandleTransformationCalls_NoTrackedArg(t *testing.T) {
+	src := `package p
+
+func unmarshal(data []byte, v *map[string]any) {}
+func f() {
+	unrelated := 42
+	data := []byte("{}")
+	var target map[string]any
+	unmarshal(data, &target)
+	_ = unrelated
+}`
+	file, info := parseAndTypeCheck(t, src)
+	unrelObj := extractVarObj(t, file, info, 1, 0) // unrelated := 42
+	call := extractCallFromFunc(t, file, 1, 3)     // unmarshal(data, &target)
+
+	tracked := map[types.Object]bool{unrelObj: true}
+	_, handled := handleTransformationCalls(call, tracked, info)
+	if handled {
+		t.Error("handleTransformationCalls should return handled=false when no tracked arg flows into call")
+	}
+}
+
+// --- extractDataFlowLHS tests ---
+
+// TestExtractDataFlowLHS_ValidIdent verifies LHS extraction for valid identifier.
+func TestExtractDataFlowLHS_ValidIdent(t *testing.T) {
+	src := `package p
+func f() {
+	x := 42
+	_ = x
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	fn, ok := file.Decls[0].(*ast.FuncDecl)
+	if !ok {
+		t.Fatal("expected *ast.FuncDecl")
+	}
+	assign, ok := fn.Body.List[0].(*ast.AssignStmt)
+	if !ok {
+		t.Fatal("expected *ast.AssignStmt")
+	}
+
+	obj := extractDataFlowLHS(assign, 0, info)
+	if obj == nil {
+		t.Fatal("extractDataFlowLHS should return non-nil for valid LHS ident")
+	}
+	if obj.Name() != "x" {
+		t.Errorf("obj.Name() = %q, want %q", obj.Name(), "x")
+	}
+}
+
+// TestExtractDataFlowLHS_BlankIdent verifies nil return for blank identifier "_".
+func TestExtractDataFlowLHS_BlankIdent(t *testing.T) {
+	src := `package p
+func f() {
+	_ = 42
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	fn, ok := file.Decls[0].(*ast.FuncDecl)
+	if !ok {
+		t.Fatal("expected *ast.FuncDecl")
+	}
+	assign, ok := fn.Body.List[0].(*ast.AssignStmt)
+	if !ok {
+		t.Fatal("expected *ast.AssignStmt")
+	}
+
+	obj := extractDataFlowLHS(assign, 0, info)
+	if obj != nil {
+		t.Error("extractDataFlowLHS should return nil for blank identifier '_'")
+	}
+}
+
+// TestExtractDataFlowLHS_NonIdentLHS verifies nil return for non-identifier LHS (e.g., s.Field).
+func TestExtractDataFlowLHS_NonIdentLHS(t *testing.T) {
+	src := `package p
+type S struct{ Field int }
+func f() {
+	var s S
+	s.Field = 42
+	_ = s
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	fn, ok := file.Decls[1].(*ast.FuncDecl) // func f() is Decls[1] after type S
+	if !ok {
+		t.Fatal("expected *ast.FuncDecl")
+	}
+	// s.Field = 42 is the second statement (after var s S)
+	assign, ok := fn.Body.List[1].(*ast.AssignStmt)
+	if !ok {
+		t.Fatal("expected *ast.AssignStmt for s.Field = 42")
+	}
+
+	obj := extractDataFlowLHS(assign, 0, info)
+	if obj != nil {
+		t.Error("extractDataFlowLHS should return nil for SelectorExpr LHS (s.Field)")
+	}
+}
+
+// TestExtractDataFlowLHS_Reassignment verifies the info.Uses fallback for = reassignment.
+func TestExtractDataFlowLHS_Reassignment(t *testing.T) {
+	src := `package p
+func f() {
+	x := 1
+	x = 2
+	_ = x
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	fn, ok := file.Decls[0].(*ast.FuncDecl)
+	if !ok {
+		t.Fatal("expected *ast.FuncDecl")
+	}
+	assign, ok := fn.Body.List[1].(*ast.AssignStmt) // x = 2 (reassignment)
+	if !ok {
+		t.Fatal("expected *ast.AssignStmt for x = 2")
+	}
+
+	obj := extractDataFlowLHS(assign, 0, info)
+	if obj == nil {
+		t.Fatal("extractDataFlowLHS should return non-nil for reassignment via info.Uses")
+	}
+	if obj.Name() != "x" {
+		t.Errorf("obj.Name() = %q, want %q", obj.Name(), "x")
+	}
+}
+
+// TestExtractDataFlowLHS_OutOfRange verifies nil return when rhsIdx is out of range.
+func TestExtractDataFlowLHS_OutOfRange(t *testing.T) {
+	src := `package p
+func f() {
+	x := 42
+	_ = x
+}`
+	file, info := parseAndTypeCheck(t, src)
+
+	fn, ok := file.Decls[0].(*ast.FuncDecl)
+	if !ok {
+		t.Fatal("expected *ast.FuncDecl")
+	}
+	assign, ok := fn.Body.List[0].(*ast.AssignStmt)
+	if !ok {
+		t.Fatal("expected *ast.AssignStmt")
+	}
+
+	// rhsIdx=5 is beyond len(assign.Lhs)
+	obj := extractDataFlowLHS(assign, 5, info)
+	if obj != nil {
+		t.Error("extractDataFlowLHS should return nil when rhsIdx is out of range")
+	}
+}
+
+// TestTraceForwardDataFlow_MultiIteration verifies that traceForwardDataFlow
+// propagates tracked variables across multiple iterations through chained
+// data-extraction assignments: a → b → c.
+func TestTraceForwardDataFlow_MultiIteration(t *testing.T) {
+	src := `package p
+
+type Inner struct{ Name string }
+type Outer struct{ Items []Inner }
+type Result struct{ Data Outer }
+
+func f() {
+	r := Result{Data: Outer{Items: []Inner{{Name: "x"}}}}
+	a := r.Data
+	b := a.Items[0]
+	c := b.Name
+	_ = c
+}`
+	file, info, fset := parseAndTypeCheckWithFset(t, src)
+
+	// func f() is Decls[3] (after 3 type declarations)
+	rObj := extractVarObj(t, file, info, 3, 0) // r := Result{...}
+	aObj := extractVarObj(t, file, info, 3, 1) // a := r.Data
+	bObj := extractVarObj(t, file, info, 3, 2) // b := a.Items[0]
+	cObj := extractVarObj(t, file, info, 3, 3) // c := b.Name
+
+	tracked := map[types.Object]bool{rObj: true}
+	pkg := &packages.Package{
+		Syntax:    []*ast.File{file},
+		TypesInfo: info,
+		Fset:      fset,
+	}
+
+	result := traceForwardDataFlow(tracked, pkg)
+
+	if !result[rObj] {
+		t.Error("should preserve original tracked variable r")
+	}
+	if !result[aObj] {
+		t.Error("iteration 1: should track a (from a := r.Data)")
+	}
+	if !result[bObj] {
+		t.Error("iteration 2: should track b (from b := a.Items[0])")
+	}
+	if !result[cObj] {
+		t.Error("iteration 3: should track c (from c := b.Name)")
 	}
 }
