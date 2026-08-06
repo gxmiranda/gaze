@@ -995,98 +995,26 @@ func traceForwardDataFlow(tracked map[types.Object]bool, testPkg *packages.Packa
 				}
 
 				for rhsIdx, rhs := range assign.Rhs {
-					// Check if any tracked variable appears in this RHS.
-					rhsReferencesTracked := false
-					for obj := range tracked {
-						if containsObject(rhs, obj, info) {
-							rhsReferencesTracked = true
-							break
-						}
-					}
-					// Also check via resolveExprRoot for compound
-					// expressions like result.Content[0].Text.
-					if !rhsReferencesTracked {
-						root := resolveExprRoot(rhs, info)
-						if root != nil {
-							rootObj := info.Uses[root]
-							if rootObj == nil {
-								rootObj = info.Defs[root]
-							}
-							if rootObj != nil && tracked[rootObj] {
-								rhsReferencesTracked = true
-							}
-						}
-					}
-
-					if !rhsReferencesTracked {
+					if !rhsReferencesAnyTracked(rhs, tracked, info) {
 						continue
 					}
 
 					// Check if the RHS contains a transformation call.
-					// If so, extract the pointer destination as the
-					// new tracked variable (bridging across the transform).
-					transformHandled := false
-					ast.Inspect(rhs, func(cn ast.Node) bool {
-						if transformHandled {
-							return false
-						}
-						call, ok := cn.(*ast.CallExpr)
-						if !ok {
-							return true
-						}
-						_, ptrIdx, isTransform := isTransformationCall(call, info)
-						if !isTransform {
-							return true
-						}
-						// Verify a tracked variable flows into this call.
-						callHasTracked := false
-						for _, arg := range call.Args {
-							for obj := range tracked {
-								if containsObject(arg, obj, info) {
-									callHasTracked = true
-									break
-								}
-							}
-							if callHasTracked {
-								break
-							}
-						}
-						if !callHasTracked {
-							return true
-						}
-						dest := extractPointerDest(call, ptrIdx, info)
+					dest, handled := handleTransformationCalls(rhs, tracked, info)
+					if handled {
 						if dest != nil {
 							newTracked[dest] = true
-							transformHandled = true
 						}
-						return false
-					})
-
-					if transformHandled {
 						continue
 					}
 
 					// Non-transformation assignment: only track LHS
-					// when the RHS is a data-extraction expression
-					// (field access, index, type assertion, or type
-					// conversion). Method calls and function calls
-					// are excluded to prevent false positives from
-					// patterns like got := s.Get("key") where s is
-					// tracked from a NewStore() return value.
+					// when the RHS is a data-extraction expression.
 					if !isDataExtraction(rhs) {
 						continue
 					}
-					if rhsIdx < len(assign.Lhs) {
-						lhsExpr := assign.Lhs[rhsIdx]
-						if ident, ok := lhsExpr.(*ast.Ident); ok && ident.Name != "_" {
-							obj := info.Defs[ident]
-							if obj == nil {
-								obj = info.Uses[ident]
-							}
-							if obj != nil {
-								newTracked[obj] = true
-							}
-						}
+					if lhsObj := extractDataFlowLHS(assign, rhsIdx, info); lhsObj != nil {
+						newTracked[lhsObj] = true
 					}
 				}
 				return true
@@ -1104,6 +1032,94 @@ func traceForwardDataFlow(tracked map[types.Object]bool, testPkg *packages.Packa
 	}
 
 	return tracked
+}
+
+// rhsReferencesAnyTracked checks whether any tracked variable appears in the
+// RHS expression, either via direct containsObject or resolveExprRoot fallback
+// for compound expressions like result.Content[0].Text.
+func rhsReferencesAnyTracked(rhs ast.Expr, tracked map[types.Object]bool, info *types.Info) bool {
+	for obj := range tracked {
+		if containsObject(rhs, obj, info) {
+			return true
+		}
+	}
+	// Also check via resolveExprRoot for compound expressions.
+	root := resolveExprRoot(rhs, info)
+	if root != nil {
+		rootObj := info.Uses[root]
+		if rootObj == nil {
+			rootObj = info.Defs[root]
+		}
+		if rootObj != nil && tracked[rootObj] {
+			return true
+		}
+	}
+	return false
+}
+
+// handleTransformationCalls inspects the RHS for transformation calls
+// (e.g., json.Unmarshal(data, &target)) where a tracked variable flows
+// into the call arguments. Returns the pointer destination and whether
+// a transformation was fully resolved — i.e., a qualifying call was found
+// AND its pointer destination was successfully extracted. When handled is
+// false, the caller falls through to the isDataExtraction path.
+func handleTransformationCalls(rhs ast.Expr, tracked map[types.Object]bool, info *types.Info) (types.Object, bool) {
+	var dest types.Object
+	handled := false
+	ast.Inspect(rhs, func(cn ast.Node) bool {
+		if handled {
+			return false
+		}
+		call, ok := cn.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		_, ptrIdx, isTransform := isTransformationCall(call, info)
+		if !isTransform {
+			return true
+		}
+		// Verify a tracked variable flows into this call.
+		callHasTracked := false
+		for _, arg := range call.Args {
+			for obj := range tracked {
+				if containsObject(arg, obj, info) {
+					callHasTracked = true
+					break
+				}
+			}
+			if callHasTracked {
+				break
+			}
+		}
+		if !callHasTracked {
+			return true
+		}
+		d := extractPointerDest(call, ptrIdx, info)
+		if d != nil {
+			dest = d
+			handled = true
+		}
+		return false
+	})
+	return dest, handled
+}
+
+// extractDataFlowLHS extracts the LHS variable from an assignment at the
+// given RHS index. Returns nil for blank identifiers, non-ident LHS, or
+// out-of-range indices.
+func extractDataFlowLHS(assign *ast.AssignStmt, rhsIdx int, info *types.Info) types.Object {
+	if rhsIdx >= len(assign.Lhs) {
+		return nil
+	}
+	ident, ok := assign.Lhs[rhsIdx].(*ast.Ident)
+	if !ok || ident.Name == "_" {
+		return nil
+	}
+	obj := info.Defs[ident]
+	if obj == nil {
+		obj = info.Uses[ident]
+	}
+	return obj
 }
 
 // matchTrackedInExpr walks the expression tree via ast.Inspect and

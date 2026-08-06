@@ -27,141 +27,188 @@ func WriteJSON(w io.Writer, reports []taxonomy.QualityReport, summary *taxonomy.
 	return enc.Encode(output)
 }
 
+// qualityStyles bundles the lipgloss styles used by the quality text report.
+type qualityStyles struct {
+	header lipgloss.Style
+	good   lipgloss.Style
+	warn   lipgloss.Style
+	bad    lipgloss.Style
+	muted  lipgloss.Style
+}
+
+// newQualityStyles returns the standard quality report style palette.
+func newQualityStyles() qualityStyles {
+	return qualityStyles{
+		header: lipgloss.NewStyle().Bold(true),
+		good:   lipgloss.NewStyle().Foreground(lipgloss.Color("2")),   // green
+		warn:   lipgloss.NewStyle().Foreground(lipgloss.Color("3")),   // yellow
+		bad:    lipgloss.NewStyle().Foreground(lipgloss.Color("1")),   // red
+		muted:  lipgloss.NewStyle().Foreground(lipgloss.Color("240")), // gray
+	}
+}
+
 // WriteText writes a human-readable quality report with lipgloss styling.
 func WriteText(w io.Writer, reports []taxonomy.QualityReport, summary *taxonomy.PackageSummary) error {
-	// Styles.
-	header := lipgloss.NewStyle().Bold(true)
-	good := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))    // green
-	warn := lipgloss.NewStyle().Foreground(lipgloss.Color("3"))    // yellow
-	bad := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))     // red
-	muted := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // gray
+	s := newQualityStyles()
 
 	for i, r := range reports {
 		if i > 0 {
 			_, _ = fmt.Fprintln(w)
 		}
+		writeReportHeader(w, r, s)
+		writeContractCoverage(w, r.ContractCoverage, s)
+		writeOverSpecification(w, r.OverSpecification.Count, s)
+		writeDetectionConfidence(w, r.AssertionDetectionConfidence, s)
+		writeGapsSection(w, r.ContractCoverage, s)
+		writeDiscardedReturns(w, r.ContractCoverage, s)
+		writeSuggestionsSection(w, r.OverSpecification.Suggestions, s)
+		writeAmbiguousEffects(w, r.AmbiguousEffects)
+		writeUnmappedAssertions(w, r.UnmappedAssertions)
+	}
 
-		// Header line.
-		_, _ = fmt.Fprintln(w, header.Render(fmt.Sprintf(
-			"=== %s -> %s ===",
-			r.TestFunction,
-			r.TargetFunction.QualifiedName())))
+	writeSSADiagnostics(w, summary, s)
+	writePackageSummary(w, summary, s)
 
-		_, _ = fmt.Fprintf(w, "    Test: %s\n", r.TestLocation)
-		_, _ = fmt.Fprintf(w, "    Target: %s\n", r.TargetFunction.Location)
+	return nil
+}
 
-		// Contract Coverage.
-		covPct := r.ContractCoverage.Percentage
-		covStyle := good
-		if covPct < 50 {
-			covStyle = bad
-		} else if covPct < 80 {
-			covStyle = warn
-		}
-		_, _ = fmt.Fprintf(w, "    Contract Coverage: %s (%d/%d)\n",
-			covStyle.Render(fmt.Sprintf("%.0f%%", covPct)),
-			r.ContractCoverage.CoveredCount,
-			r.ContractCoverage.TotalContractual)
+// writeReportHeader writes the test-to-target header and location lines.
+func writeReportHeader(w io.Writer, r taxonomy.QualityReport, s qualityStyles) {
+	_, _ = fmt.Fprintln(w, s.header.Render(fmt.Sprintf(
+		"=== %s -> %s ===",
+		r.TestFunction,
+		r.TargetFunction.QualifiedName())))
+	_, _ = fmt.Fprintf(w, "    Test: %s\n", r.TestLocation)
+	_, _ = fmt.Fprintf(w, "    Target: %s\n", r.TargetFunction.Location)
+}
 
-		// Over-Specification.
-		overCount := r.OverSpecification.Count
-		overStyle := good
-		if overCount > 0 {
-			overStyle = warn
-		}
-		if overCount > 3 {
-			overStyle = bad
-		}
-		_, _ = fmt.Fprintf(w, "    Over-Specified: %s\n",
-			overStyle.Render(fmt.Sprintf("%d", overCount)))
+// writeContractCoverage writes the contract coverage metric with threshold-based styling.
+func writeContractCoverage(w io.Writer, cc taxonomy.ContractCoverage, s qualityStyles) {
+	covPct := cc.Percentage
+	covStyle := s.good
+	if covPct < 50 {
+		covStyle = s.bad
+	} else if covPct < 80 {
+		covStyle = s.warn
+	}
+	_, _ = fmt.Fprintf(w, "    Contract Coverage: %s (%d/%d)\n",
+		covStyle.Render(fmt.Sprintf("%.0f%%", covPct)),
+		cc.CoveredCount,
+		cc.TotalContractual)
+}
 
-		// Detection Confidence.
-		detConf := r.AssertionDetectionConfidence
-		detStyle := good
-		if detConf < 70 {
-			detStyle = warn
-		}
-		if detConf < 50 {
-			detStyle = bad
-		}
-		_, _ = fmt.Fprintf(w, "    Detection Confidence: %s\n",
-			detStyle.Render(fmt.Sprintf("%d%%", detConf)))
+// writeOverSpecification writes the over-specification count with threshold-based styling.
+func writeOverSpecification(w io.Writer, overCount int, s qualityStyles) {
+	overStyle := s.good
+	if overCount > 0 {
+		overStyle = s.warn
+	}
+	if overCount > 3 {
+		overStyle = s.bad
+	}
+	_, _ = fmt.Fprintf(w, "    Over-Specified: %s\n",
+		overStyle.Render(fmt.Sprintf("%d", overCount)))
+}
 
-		// Gaps.
-		if len(r.ContractCoverage.Gaps) > 0 {
-			_, _ = fmt.Fprintln(w, muted.Render("    Gaps (untested contractual effects):"))
-			for i, gap := range r.ContractCoverage.Gaps {
-				_, _ = fmt.Fprintf(w, "      - %s: %s (%s)\n",
-					gap.Type, gap.Description, gap.Location)
-				// Hint: show the suggested assertion if available.
-				if i < len(r.ContractCoverage.GapHints) && r.ContractCoverage.GapHints[i] != "" {
-					_, _ = fmt.Fprintf(w, "        hint: %s\n", r.ContractCoverage.GapHints[i])
-				}
-			}
-		}
+// writeDetectionConfidence writes the detection confidence metric with threshold-based styling.
+func writeDetectionConfidence(w io.Writer, detConf int, s qualityStyles) {
+	detStyle := s.good
+	if detConf < 70 {
+		detStyle = s.warn
+	}
+	if detConf < 50 {
+		detStyle = s.bad
+	}
+	_, _ = fmt.Fprintf(w, "    Detection Confidence: %s\n",
+		detStyle.Render(fmt.Sprintf("%d%%", detConf)))
+}
 
-		// Discarded returns (definitively unasserted).
-		if len(r.ContractCoverage.DiscardedReturns) > 0 {
-			_, _ = fmt.Fprintln(w, muted.Render("    Discarded returns (definitively unasserted):"))
-			for i, dr := range r.ContractCoverage.DiscardedReturns {
-				_, _ = fmt.Fprintf(w, "      - %s: %s (%s)\n",
-					dr.Type, dr.Description, dr.Location)
-				if i < len(r.ContractCoverage.DiscardedReturnHints) && r.ContractCoverage.DiscardedReturnHints[i] != "" {
-					_, _ = fmt.Fprintf(w, "        hint: %s\n", r.ContractCoverage.DiscardedReturnHints[i])
-				}
-			}
-		}
-
-		// Suggestions.
-		if len(r.OverSpecification.Suggestions) > 0 {
-			_, _ = fmt.Fprintln(w, muted.Render("    Suggestions:"))
-			for _, s := range r.OverSpecification.Suggestions {
-				_, _ = fmt.Fprintf(w, "      - %s\n", s)
-			}
-		}
-
-		// Ambiguous effects — per-item list so agents can target GoDoc fixes.
-		if len(r.AmbiguousEffects) > 0 {
-			_, _ = fmt.Fprintf(w, "    Ambiguous effects (excluded from metrics): %d\n",
-				len(r.AmbiguousEffects))
-			for _, ae := range r.AmbiguousEffects {
-				_, _ = fmt.Fprintf(w, "      - %s: %s (%s)\n",
-					ae.Type, ae.Description, ae.Location)
-			}
-		}
-
-		// Unmapped assertions — per-item list with location, type, and reason.
-		if len(r.UnmappedAssertions) > 0 {
-			_, _ = fmt.Fprintf(w, "    Unmapped assertions: %d\n",
-				len(r.UnmappedAssertions))
-			for _, ua := range r.UnmappedAssertions {
-				if ua.UnmappedReason != "" {
-					_, _ = fmt.Fprintf(w, "      - %s  %s  [%s]\n",
-						ua.AssertionLocation, ua.AssertionType, ua.UnmappedReason)
-				} else {
-					_, _ = fmt.Fprintf(w, "      - %s  %s\n",
-						ua.AssertionLocation, ua.AssertionType)
-				}
+// writeGapsSection writes the untested contractual effects gaps list with optional hints.
+func writeGapsSection(w io.Writer, cc taxonomy.ContractCoverage, s qualityStyles) {
+	if len(cc.Gaps) > 0 {
+		_, _ = fmt.Fprintln(w, s.muted.Render("    Gaps (untested contractual effects):"))
+		for i, gap := range cc.Gaps {
+			_, _ = fmt.Fprintf(w, "      - %s: %s (%s)\n",
+				gap.Type, gap.Description, gap.Location)
+			if i < len(cc.GapHints) && cc.GapHints[i] != "" {
+				_, _ = fmt.Fprintf(w, "        hint: %s\n", cc.GapHints[i])
 			}
 		}
 	}
+}
 
-	// SSA diagnostics.
+// writeDiscardedReturns writes the definitively unasserted discarded returns list with optional hints.
+func writeDiscardedReturns(w io.Writer, cc taxonomy.ContractCoverage, s qualityStyles) {
+	if len(cc.DiscardedReturns) > 0 {
+		_, _ = fmt.Fprintln(w, s.muted.Render("    Discarded returns (definitively unasserted):"))
+		for i, dr := range cc.DiscardedReturns {
+			_, _ = fmt.Fprintf(w, "      - %s: %s (%s)\n",
+				dr.Type, dr.Description, dr.Location)
+			if i < len(cc.DiscardedReturnHints) && cc.DiscardedReturnHints[i] != "" {
+				_, _ = fmt.Fprintf(w, "        hint: %s\n", cc.DiscardedReturnHints[i])
+			}
+		}
+	}
+}
+
+// writeSuggestionsSection writes the over-specification suggestions list.
+func writeSuggestionsSection(w io.Writer, suggestions []string, s qualityStyles) {
+	if len(suggestions) > 0 {
+		_, _ = fmt.Fprintln(w, s.muted.Render("    Suggestions:"))
+		for _, sg := range suggestions {
+			_, _ = fmt.Fprintf(w, "      - %s\n", sg)
+		}
+	}
+}
+
+// writeAmbiguousEffects writes the ambiguous effects list.
+func writeAmbiguousEffects(w io.Writer, effects []taxonomy.SideEffect) {
+	if len(effects) > 0 {
+		_, _ = fmt.Fprintf(w, "    Ambiguous effects (excluded from metrics): %d\n",
+			len(effects))
+		for _, ae := range effects {
+			_, _ = fmt.Fprintf(w, "      - %s: %s (%s)\n",
+				ae.Type, ae.Description, ae.Location)
+		}
+	}
+}
+
+// writeUnmappedAssertions writes the unmapped assertions list with optional reasons.
+func writeUnmappedAssertions(w io.Writer, assertions []taxonomy.AssertionMapping) {
+	if len(assertions) > 0 {
+		_, _ = fmt.Fprintf(w, "    Unmapped assertions: %d\n",
+			len(assertions))
+		for _, ua := range assertions {
+			if ua.UnmappedReason != "" {
+				_, _ = fmt.Fprintf(w, "      - %s  %s  [%s]\n",
+					ua.AssertionLocation, ua.AssertionType, ua.UnmappedReason)
+			} else {
+				_, _ = fmt.Fprintf(w, "      - %s  %s\n",
+					ua.AssertionLocation, ua.AssertionType)
+			}
+		}
+	}
+}
+
+// writeSSADiagnostics writes SSA construction failure warnings if applicable.
+func writeSSADiagnostics(w io.Writer, summary *taxonomy.PackageSummary, s qualityStyles) {
 	if summary != nil && summary.SSADegraded && len(summary.SSADegradedPackages) > 0 {
 		_, _ = fmt.Fprintln(w)
 		_, _ = fmt.Fprintf(w, "    %s SSA construction failed for %d package(s):\n",
-			warn.Render("⚠"),
+			s.warn.Render("⚠"),
 			len(summary.SSADegradedPackages))
 		for _, pkg := range summary.SSADegradedPackages {
 			_, _ = fmt.Fprintf(w, "      - %s\n", pkg)
 		}
-		_, _ = fmt.Fprintln(w, muted.Render("    Quality metrics for these packages are partial (AST-only)."))
+		_, _ = fmt.Fprintln(w, s.muted.Render("    Quality metrics for these packages are partial (AST-only)."))
 	}
+}
 
-	// Package summary.
+// writePackageSummary writes the package-level summary footer.
+func writePackageSummary(w io.Writer, summary *taxonomy.PackageSummary, s qualityStyles) {
 	if summary != nil && summary.TotalTests > 0 {
 		_, _ = fmt.Fprintln(w)
-		_, _ = fmt.Fprintln(w, header.Render("=== Package Summary ==="))
+		_, _ = fmt.Fprintln(w, s.header.Render("=== Package Summary ==="))
 		_, _ = fmt.Fprintf(w, "    Tests analyzed: %d\n", summary.TotalTests)
 		_, _ = fmt.Fprintf(w, "    Average contract coverage: %.0f%%\n",
 			summary.AverageContractCoverage)
@@ -171,7 +218,7 @@ func WriteText(w io.Writer, reports []taxonomy.QualityReport, summary *taxonomy.
 			summary.AssertionDetectionConfidence)
 
 		if len(summary.WorstCoverageTests) > 0 {
-			_, _ = fmt.Fprintln(w, muted.Render("    Lowest coverage tests:"))
+			_, _ = fmt.Fprintln(w, s.muted.Render("    Lowest coverage tests:"))
 			for _, worst := range summary.WorstCoverageTests {
 				_, _ = fmt.Fprintf(w, "      - %s: %.0f%% (%d/%d)\n",
 					worst.TestFunction,
@@ -181,6 +228,4 @@ func WriteText(w io.Writer, reports []taxonomy.QualityReport, summary *taxonomy.
 			}
 		}
 	}
-
-	return nil
 }
