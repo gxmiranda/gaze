@@ -361,6 +361,80 @@ func TestWriteUnmappedAssertions_WithoutReason(t *testing.T) {
 	})
 }
 
+// TestWriteSkippedTests_Rendering verifies the skipped tests section
+// in the text report.
+func TestWriteSkippedTests_Rendering(t *testing.T) {
+	s := newQualityStyles()
+
+	t.Run("nil_summary", func(t *testing.T) {
+		var buf bytes.Buffer
+		writeSkippedTests(&buf, nil, s)
+		if buf.Len() != 0 {
+			t.Errorf("expected no output for nil summary, got %q", buf.String())
+		}
+	})
+
+	t.Run("zero_skipped", func(t *testing.T) {
+		var buf bytes.Buffer
+		summary := &taxonomy.PackageSummary{SkippedTests: 0}
+		writeSkippedTests(&buf, summary, s)
+		if buf.Len() != 0 {
+			t.Errorf("expected no output for zero skipped, got %q", buf.String())
+		}
+	})
+
+	t.Run("some_skipped", func(t *testing.T) {
+		var buf bytes.Buffer
+		summary := &taxonomy.PackageSummary{
+			SkippedTests:     3,
+			SkippedTestNames: []string{"TestAlpha", "TestBeta", "TestGamma"},
+		}
+		writeSkippedTests(&buf, summary, s)
+		out := buf.String()
+		if !strings.Contains(out, "3 test function(s) skipped") {
+			t.Errorf("expected '3 test function(s) skipped' in output, got %q", out)
+		}
+		if !strings.Contains(out, "TestAlpha") {
+			t.Errorf("expected 'TestAlpha' in output, got %q", out)
+		}
+		if !strings.Contains(out, "TestGamma") {
+			t.Errorf("expected 'TestGamma' in output, got %q", out)
+		}
+		if !strings.Contains(out, "--target") {
+			t.Errorf("expected '--target' hint in output, got %q", out)
+		}
+	})
+
+	t.Run("truncation_at_20", func(t *testing.T) {
+		var buf bytes.Buffer
+		names := make([]string, 25)
+		for i := range names {
+			names[i] = fmt.Sprintf("TestFunc%02d", i)
+		}
+		summary := &taxonomy.PackageSummary{
+			SkippedTests:     25,
+			SkippedTestNames: names,
+		}
+		writeSkippedTests(&buf, summary, s)
+		out := buf.String()
+		// First 20 should appear.
+		if !strings.Contains(out, "TestFunc00") {
+			t.Errorf("expected 'TestFunc00' in output, got %q", out)
+		}
+		if !strings.Contains(out, "TestFunc19") {
+			t.Errorf("expected 'TestFunc19' in output, got %q", out)
+		}
+		// 21st should NOT appear as a list item.
+		if strings.Contains(out, "TestFunc20") {
+			t.Errorf("expected 'TestFunc20' to be truncated, got %q", out)
+		}
+		// Truncation message.
+		if !strings.Contains(out, "... and 5 more") {
+			t.Errorf("expected '... and 5 more' in output, got %q", out)
+		}
+	})
+}
+
 // TestWriteText_MultiReportSeparator verifies that a blank line separator
 // appears between multiple reports.
 func TestWriteText_MultiReportSeparator(t *testing.T) {

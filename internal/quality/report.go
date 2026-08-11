@@ -67,6 +67,7 @@ func WriteText(w io.Writer, reports []taxonomy.QualityReport, summary *taxonomy.
 	}
 
 	writeSSADiagnostics(w, summary, s)
+	writeSkippedTests(w, summary, s)
 	writePackageSummary(w, summary, s)
 
 	return nil
@@ -202,6 +203,34 @@ func writeSSADiagnostics(w io.Writer, summary *taxonomy.PackageSummary, s qualit
 		}
 		_, _ = fmt.Fprintln(w, s.muted.Render("    Quality metrics for these packages are partial (AST-only)."))
 	}
+}
+
+// maxSkippedTestNames is the maximum number of skipped test names
+// to display in the text report before truncating.
+const maxSkippedTestNames = 20
+
+// writeSkippedTests writes a section listing test functions that were
+// skipped because no target function could be resolved (e.g., BDD/Ginkgo
+// suites using dynamic dispatch).
+func writeSkippedTests(w io.Writer, summary *taxonomy.PackageSummary, s qualityStyles) {
+	if summary == nil || summary.SkippedTests == 0 {
+		return
+	}
+	_, _ = fmt.Fprintln(w)
+	_, _ = fmt.Fprintf(w, "    %s %d test function(s) skipped (no target resolved):\n",
+		s.warn.Render("⚠"),
+		summary.SkippedTests)
+	limit := summary.SkippedTests
+	if limit > maxSkippedTestNames {
+		limit = maxSkippedTestNames
+	}
+	for i := 0; i < limit && i < len(summary.SkippedTestNames); i++ {
+		_, _ = fmt.Fprintf(w, "      - %s\n", summary.SkippedTestNames[i])
+	}
+	if summary.SkippedTests > maxSkippedTestNames {
+		_, _ = fmt.Fprintf(w, "      ... and %d more\n", summary.SkippedTests-maxSkippedTestNames)
+	}
+	_, _ = fmt.Fprintln(w, s.muted.Render("    Use --target=FuncName to specify target functions manually."))
 }
 
 // writePackageSummary writes the package-level summary footer.

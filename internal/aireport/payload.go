@@ -49,6 +49,11 @@ type ReportSummary struct {
 	// Incidental is the number of side effects classified as
 	// incidental across all analyzed packages.
 	Incidental int
+
+	// SkippedTests is the number of test functions that were skipped
+	// because no target function could be resolved (e.g., BDD/Ginkgo
+	// suites using dynamic dispatch).
+	SkippedTests int
 }
 
 // ReportPayload is the combined analysis data passed to the AI adapter

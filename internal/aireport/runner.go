@@ -311,6 +311,7 @@ func runProductionPipeline(patterns []string, moduleDir string, coverProfile str
 	} else {
 		payload.Quality = qualRes.JSON
 		payload.Summary.AvgContractCoverage = qualRes.AvgContractCoverage
+		payload.Summary.SkippedTests = qualRes.SkippedTests
 		payload.Summary.SSADegraded = payload.Summary.SSADegraded || qualRes.SSADegraded
 		payload.Summary.SSADegradedPackages = append(
 			payload.Summary.SSADegradedPackages, qualRes.SSADegradedPackages...)

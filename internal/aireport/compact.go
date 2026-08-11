@@ -32,6 +32,7 @@ type compactSummary struct {
 	Contractual         int      `json:"contractual"`
 	Ambiguous           int      `json:"ambiguous"`
 	Incidental          int      `json:"incidental"`
+	SkippedTests        int      `json:"skipped_tests"`
 }
 
 // compactDocscanEntry retains only the path and priority from a
@@ -147,6 +148,8 @@ type compactPackageSummary struct {
 	AssertionDetectionConfidence int      `json:"assertion_detection_confidence"`
 	SSADegraded                  bool     `json:"ssa_degraded"`
 	SSADegradedPackages          []string `json:"ssa_degraded_packages,omitempty"`
+	SkippedTests                 int      `json:"skipped_tests"`
+	SkippedTestNames             []string `json:"skipped_test_names,omitempty"`
 }
 
 // CompactForAI produces a reduced JSON representation of the payload
@@ -170,6 +173,7 @@ func (p *ReportPayload) CompactForAI() ([]byte, error) {
 			Contractual:         p.Summary.Contractual,
 			Ambiguous:           p.Summary.Ambiguous,
 			Incidental:          p.Summary.Incidental,
+			SkippedTests:        p.Summary.SkippedTests,
 		},
 		Errors: p.Errors,
 	}
@@ -285,6 +289,8 @@ func compactQualityField(raw json.RawMessage) (json.RawMessage, error) {
 			AssertionDetectionConfidence: full.Summary.AssertionDetectionConfidence,
 			SSADegraded:                  full.Summary.SSADegraded,
 			SSADegradedPackages:          full.Summary.SSADegradedPackages,
+			SkippedTests:                 full.Summary.SkippedTests,
+			SkippedTestNames:             full.Summary.SkippedTestNames,
 		}
 	}
 

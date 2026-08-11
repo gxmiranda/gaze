@@ -1301,6 +1301,155 @@ func TestMergeSummaries_SSADegraded(t *testing.T) {
 	}
 }
 
+func TestMergeSummaries_SkippedTests(t *testing.T) {
+	s1 := &taxonomy.PackageSummary{
+		TotalTests:       3,
+		SkippedTests:     2,
+		SkippedTestNames: []string{"TestA", "TestB"},
+	}
+	s2 := &taxonomy.PackageSummary{
+		TotalTests:       1,
+		SkippedTests:     1,
+		SkippedTestNames: []string{"TestC"},
+	}
+	got := mergeSummaries([]*taxonomy.PackageSummary{s1, s2})
+	if got.SkippedTests != 3 {
+		t.Errorf("SkippedTests = %d, want 3", got.SkippedTests)
+	}
+	if len(got.SkippedTestNames) != 3 {
+		t.Errorf("SkippedTestNames len = %d, want 3", len(got.SkippedTestNames))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Empty-result gate tests
+// ---------------------------------------------------------------------------
+
+func TestRunQuality_EmptyResults_NoThreshold_ExitsZero(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns: []string{"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle"},
+		format:   "text",
+		stdout:   &stdout,
+		stderr:   &stderr,
+	})
+	if err != nil {
+		t.Fatalf("expected nil error without thresholds, got: %v", err)
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "0 of") {
+		t.Errorf("expected '0 of' summary in stdout, got: %q", out)
+	}
+	if !strings.Contains(out, "mapped to a target") {
+		t.Errorf("expected 'mapped to a target' in stdout, got: %q", out)
+	}
+}
+
+func TestRunQuality_EmptyResults_MinCoverageThreshold_ExitsNonZero(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns:            []string{"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle"},
+		format:              "text",
+		minContractCoverage: 10,
+		stdout:              &stdout,
+		stderr:              &stderr,
+	})
+	if err == nil {
+		t.Fatal("expected error when minContractCoverage is set with zero results")
+	}
+	if !strings.Contains(err.Error(), "quality gate failed") {
+		t.Errorf("expected 'quality gate failed' in error, got: %v", err)
+	}
+}
+
+func TestRunQuality_EmptyResults_MaxOverSpecThreshold_ExitsNonZero(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns:             []string{"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle"},
+		format:               "text",
+		maxOverSpecification: 5,
+		stdout:               &stdout,
+		stderr:               &stderr,
+	})
+	if err == nil {
+		t.Fatal("expected error when maxOverSpecification is set with zero results")
+	}
+	if !strings.Contains(err.Error(), "quality gate failed") {
+		t.Errorf("expected 'quality gate failed' in error, got: %v", err)
+	}
+}
+
+func TestRunQuality_EmptyResults_ZeroThreshold_ExitsZero(t *testing.T) {
+	// --min-contract-coverage=0 is semantically "disabled" —
+	// zero-means-disabled per the > 0 check.
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns:            []string{"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle"},
+		format:              "text",
+		minContractCoverage: 0,
+		stdout:              &stdout,
+		stderr:              &stderr,
+	})
+	if err != nil {
+		t.Fatalf("expected nil error with minContractCoverage=0, got: %v", err)
+	}
+}
+
+func TestRunQuality_EmptyResults_JSON_ProducesValidJSON(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns: []string{"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle"},
+		format:   "json",
+		stdout:   &stdout,
+		stderr:   &stderr,
+	})
+	if err != nil {
+		t.Fatalf("expected nil error for JSON format, got: %v", err)
+	}
+	// Verify the output is valid JSON.
+	var parsed map[string]interface{}
+	if jsonErr := json.Unmarshal(stdout.Bytes(), &parsed); jsonErr != nil {
+		t.Fatalf("stdout is not valid JSON: %v\noutput: %s", jsonErr, stdout.String())
+	}
+	// Verify quality_reports is present and empty.
+	reports, ok := parsed["quality_reports"]
+	if !ok {
+		t.Fatal("expected 'quality_reports' key in JSON output")
+	}
+	arr, ok := reports.([]interface{})
+	if !ok {
+		t.Fatalf("expected quality_reports to be an array, got %T", reports)
+	}
+	if len(arr) != 0 {
+		t.Errorf("expected empty quality_reports array, got %d elements", len(arr))
+	}
+}
+
+func TestRunQuality_EmptyResults_StdoutListsSkippedTests(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns: []string{"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle"},
+		format:   "text",
+		stdout:   &stdout,
+		stderr:   &stderr,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stdout.String()
+	// Should list skipped test names.
+	if !strings.Contains(out, "TestCalculatorSuite") {
+		t.Errorf("expected skipped test name 'TestCalculatorSuite' in stdout, got: %q", out)
+	}
+	if !strings.Contains(out, "TestFormatSuite") {
+		t.Errorf("expected skipped test name 'TestFormatSuite' in stdout, got: %q", out)
+	}
+	// Should contain the --target hint.
+	if !strings.Contains(out, "--target") {
+		t.Errorf("expected '--target' hint in stdout, got: %q", out)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // checkQualityThresholds tests (SC-005)
 // ---------------------------------------------------------------------------

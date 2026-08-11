@@ -2959,3 +2959,99 @@ func TestAssertionCount_PopulatedInQualityReport(t *testing.T) {
 		t.Error("expected at least one report with AssertionCount > 0 on welltested fixture")
 	}
 }
+
+// TestAssess_SkippedTests_UnresolvableTargets verifies that Assess
+// populates SkippedTests and SkippedTestNames when test functions
+// use interface dispatch (BDD-style) making targets unresolvable.
+func TestAssess_SkippedTests_UnresolvableTargets(t *testing.T) {
+	pkg := loadPkg(t, "bddstyle")
+
+	nonTestPkg, err := loadNonTestPackage("bddstyle")
+	if err != nil {
+		t.Fatalf("loading non-test package: %v", err)
+	}
+
+	opts := analysis.Options{Version: "test"}
+	results, err := analysis.Analyze(nonTestPkg, opts)
+	if err != nil {
+		t.Fatalf("analysis failed: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	qualOpts := quality.Options{Stderr: &stderr}
+	reports, summary, err := quality.Assess(results, pkg, qualOpts)
+	if err != nil {
+		t.Fatalf("Assess failed: %v", err)
+	}
+
+	if summary == nil {
+		t.Fatal("expected non-nil summary")
+	}
+
+	t.Logf("reports=%d, skipped=%d, skippedNames=%v", len(reports), summary.SkippedTests, summary.SkippedTestNames)
+	t.Logf("stderr: %s", stderr.String())
+
+	// All test functions in bddstyle use interface dispatch,
+	// so none should resolve to targets — all should be skipped.
+	if summary.SkippedTests == 0 {
+		t.Error("expected SkippedTests > 0 for BDD-style fixture")
+	}
+	if len(summary.SkippedTestNames) == 0 {
+		t.Error("expected SkippedTestNames to be populated")
+	}
+	if summary.SkippedTests != len(summary.SkippedTestNames) {
+		t.Errorf("SkippedTests=%d does not match len(SkippedTestNames)=%d",
+			summary.SkippedTests, len(summary.SkippedTestNames))
+	}
+
+	// Since all tests are skipped, reports should be empty.
+	if len(reports) != 0 {
+		t.Errorf("expected 0 reports for all-skipped fixture, got %d", len(reports))
+	}
+
+	// TotalTests should be 0 (only successfully paired tests count).
+	if summary.TotalTests != 0 {
+		t.Errorf("expected TotalTests=0 for all-skipped fixture, got %d", summary.TotalTests)
+	}
+}
+
+// TestAssess_SkippedTests_SSADegraded verifies that SkippedTests
+// is zero when SSA is degraded (tests are enumerated but not
+// target-inferred, so the skip path doesn't execute).
+func TestAssess_SkippedTests_SSADegraded(t *testing.T) {
+	pkg := loadPkg(t, "welltested")
+
+	nonTestPkg, err := loadNonTestPackage("welltested")
+	if err != nil {
+		t.Fatalf("loading non-test package: %v", err)
+	}
+
+	opts := analysis.Options{Version: "test"}
+	results, err := analysis.Analyze(nonTestPkg, opts)
+	if err != nil {
+		t.Fatalf("analysis failed: %v", err)
+	}
+
+	// Force SSA degradation by injecting a failing BuildSSAFunc.
+	qualOpts := quality.Options{
+		BuildSSAFunc: func(_ *packages.Package) (*ssa.Program, *ssa.Package, error) {
+			return nil, nil, fmt.Errorf("synthetic SSA failure")
+		},
+	}
+	_, summary, err := quality.Assess(results, pkg, qualOpts)
+	if err != nil {
+		t.Fatalf("Assess failed: %v", err)
+	}
+
+	if summary == nil {
+		t.Fatal("expected non-nil summary")
+	}
+
+	// In degraded mode, there's no target inference — no skipping occurs.
+	if summary.SkippedTests != 0 {
+		t.Errorf("expected SkippedTests=0 in degraded mode, got %d", summary.SkippedTests)
+	}
+	if len(summary.SkippedTestNames) != 0 {
+		t.Errorf("expected empty SkippedTestNames in degraded mode, got %v", summary.SkippedTestNames)
+	}
+}

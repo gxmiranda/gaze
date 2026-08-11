@@ -136,6 +136,8 @@ func Assess(
 
 	// Step 3: Build reports.
 	var reports []taxonomy.QualityReport
+	var skippedTests int
+	var skippedTestNames []string
 
 	if ssaDegraded {
 		// Degraded path: SSA unavailable. Produce one report per
@@ -190,6 +192,8 @@ func Assess(
 			}
 
 			if len(targets) == 0 {
+				skippedTests++
+				skippedTestNames = append(skippedTestNames, tf.Name)
 				if opts.Stderr != nil {
 					_, _ = fmt.Fprintf(opts.Stderr,
 						"warning: %s: no target function identified, skipping\n", tf.Name)
@@ -258,6 +262,8 @@ func Assess(
 	if ssaDegraded {
 		summary.SSADegradedPackages = []string{testPkg.PkgPath}
 	}
+	summary.SkippedTests = skippedTests
+	summary.SkippedTestNames = skippedTestNames
 	return reports, summary, nil
 }
 

@@ -434,6 +434,15 @@ const QualitySchema = `{
           "type": "array",
           "items": { "type": "string" },
           "description": "Package paths where SSA construction failed"
+        },
+        "skipped_tests": {
+          "type": "integer",
+          "description": "Number of test functions skipped because no target function could be resolved"
+        },
+        "skipped_test_names": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Names of test functions that were skipped (no target resolved)"
         }
       }
     },

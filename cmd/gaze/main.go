@@ -1163,13 +1163,49 @@ func runQuality(p qualityParams) error {
 		allSummaries = append(allSummaries, summary)
 	}
 
+	// Merge summaries into a single aggregate summary.
+	// This must happen before the empty-result check so that
+	// skipped test data is available for the summary output.
+	merged := mergeSummaries(allSummaries)
+
 	if len(allReports) == 0 {
-		logger.Warn("no quality reports generated")
+		// No test-target pairs were resolved. Print a summary to
+		// stdout so the user knows what happened and how to fix it.
+		totalTestFuncs := merged.TotalTests + merged.SkippedTests
+		switch p.format {
+		case "json":
+			// Produce valid JSON even when no reports exist.
+			// Use a non-nil empty slice so JSON encodes as [] not null.
+			emptyReports := make([]taxonomy.QualityReport, 0)
+			if err := quality.WriteJSON(p.stdout, emptyReports, merged); err != nil {
+				return err
+			}
+		default:
+			_, _ = fmt.Fprintf(p.stdout, "Quality: 0 of %d test functions mapped to a target\n", totalTestFuncs)
+			if merged.SkippedTests > 0 {
+				_, _ = fmt.Fprintf(p.stdout, "\nSkipped test functions (%d):\n", merged.SkippedTests)
+				limit := merged.SkippedTests
+				if limit > 20 {
+					limit = 20
+				}
+				for _, name := range merged.SkippedTestNames[:limit] {
+					_, _ = fmt.Fprintf(p.stdout, "  - %s\n", name)
+				}
+				if merged.SkippedTests > 20 {
+					_, _ = fmt.Fprintf(p.stdout, "  ... and %d more\n", merged.SkippedTests-20)
+				}
+				_, _ = fmt.Fprintf(p.stdout, "\nHint: use --target=FuncName to specify the target explicitly\n")
+			}
+		}
+
+		// Gate: if quality thresholds are set, fail on zero results.
+		if p.minContractCoverage > 0 || p.maxOverSpecification > 0 {
+			return fmt.Errorf("quality gate failed: no test-target pairs resolved, "+
+				"but threshold flags are set (--min-contract-coverage=%d, --max-over-specification=%d)",
+				p.minContractCoverage, p.maxOverSpecification)
+		}
 		return nil
 	}
-
-	// Merge summaries into a single aggregate summary.
-	merged := mergeSummaries(allSummaries)
 
 	// Write report.
 	switch p.format {
@@ -1209,6 +1245,8 @@ func mergeSummaries(summaries []*taxonomy.PackageSummary) *taxonomy.PackageSumma
 		allWorst = append(allWorst, s.WorstCoverageTests...)
 		merged.SSADegraded = merged.SSADegraded || s.SSADegraded
 		merged.SSADegradedPackages = append(merged.SSADegradedPackages, s.SSADegradedPackages...)
+		merged.SkippedTests += s.SkippedTests
+		merged.SkippedTestNames = append(merged.SkippedTestNames, s.SkippedTestNames...)
 	}
 	n := float64(len(summaries))
 	merged.AverageContractCoverage = totalCoverage / n

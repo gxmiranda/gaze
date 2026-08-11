@@ -466,6 +466,18 @@ type PackageSummary struct {
 	// SSADegradedPackages lists the package paths where SSA
 	// construction failed. Populated when SSADegraded is true.
 	SSADegradedPackages []string `json:"ssa_degraded_packages,omitempty"`
+
+	// SkippedTests is the number of test functions that were
+	// skipped because no target function could be resolved.
+	// This typically happens with BDD frameworks (e.g., Ginkgo)
+	// where test registration uses dynamic dispatch invisible
+	// to SSA analysis.
+	SkippedTests int `json:"skipped_tests"`
+
+	// SkippedTestNames lists the names of test functions that
+	// were skipped due to unresolvable targets. Truncated to
+	// the first 20 names when the list is large.
+	SkippedTestNames []string `json:"skipped_test_names,omitempty"`
 }
 
 // GenerateID produces a stable, deterministic ID for a side effect
