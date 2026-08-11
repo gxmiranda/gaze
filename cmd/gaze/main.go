@@ -1163,6 +1163,11 @@ func runQuality(p qualityParams) error {
 		allSummaries = append(allSummaries, summary)
 	}
 
+	// maxSkippedTestDisplay is the maximum number of skipped test names
+	// to display in stdout output before truncating. Mirrors
+	// quality.maxSkippedTestNames in internal/quality/report.go.
+	const maxSkippedTestDisplay = 20
+
 	// Merge summaries into a single aggregate summary.
 	// This must happen before the empty-result check so that
 	// skipped test data is available for the summary output.
@@ -1185,14 +1190,17 @@ func runQuality(p qualityParams) error {
 			if merged.SkippedTests > 0 {
 				_, _ = fmt.Fprintf(p.stdout, "\nSkipped test functions (%d):\n", merged.SkippedTests)
 				limit := merged.SkippedTests
-				if limit > 20 {
-					limit = 20
+				if limit > maxSkippedTestDisplay {
+					limit = maxSkippedTestDisplay
+				}
+				if limit > len(merged.SkippedTestNames) {
+					limit = len(merged.SkippedTestNames)
 				}
 				for _, name := range merged.SkippedTestNames[:limit] {
 					_, _ = fmt.Fprintf(p.stdout, "  - %s\n", name)
 				}
-				if merged.SkippedTests > 20 {
-					_, _ = fmt.Fprintf(p.stdout, "  ... and %d more\n", merged.SkippedTests-20)
+				if merged.SkippedTests > maxSkippedTestDisplay {
+					_, _ = fmt.Fprintf(p.stdout, "  ... and %d more\n", merged.SkippedTests-maxSkippedTestDisplay)
 				}
 				_, _ = fmt.Fprintf(p.stdout, "\nHint: use --target=FuncName to specify the target explicitly\n")
 			}

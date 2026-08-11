@@ -2991,13 +2991,25 @@ func TestAssess_SkippedTests_UnresolvableTargets(t *testing.T) {
 	t.Logf("reports=%d, skipped=%d, skippedNames=%v", len(reports), summary.SkippedTests, summary.SkippedTestNames)
 	t.Logf("stderr: %s", stderr.String())
 
-	// All test functions in bddstyle use interface dispatch,
-	// so none should resolve to targets — all should be skipped.
-	if summary.SkippedTests == 0 {
-		t.Error("expected SkippedTests > 0 for BDD-style fixture")
+	// The bddstyle fixture has exactly 2 test functions
+	// (TestCalculatorSuite, TestFormatSuite), both using dynamic dispatch.
+	// All should be skipped — none resolve to targets.
+	if summary.SkippedTests != 2 {
+		t.Errorf("expected SkippedTests=2 for bddstyle fixture (2 test funcs), got %d",
+			summary.SkippedTests)
 	}
-	if len(summary.SkippedTestNames) == 0 {
-		t.Error("expected SkippedTestNames to be populated")
+	wantNames := []string{"TestCalculatorSuite", "TestFormatSuite"}
+	for _, want := range wantNames {
+		found := false
+		for _, got := range summary.SkippedTestNames {
+			if got == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected %q in SkippedTestNames, got %v", want, summary.SkippedTestNames)
+		}
 	}
 	if summary.SkippedTests != len(summary.SkippedTestNames) {
 		t.Errorf("SkippedTests=%d does not match len(SkippedTestNames)=%d",

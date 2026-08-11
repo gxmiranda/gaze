@@ -415,6 +415,23 @@ func TestRunQualityStep_DI_SSADegradation(t *testing.T) {
 	}
 }
 
+func TestRunQualityStep_DI_SkippedTestsPropagation(t *testing.T) {
+	deps := fakeDepsSuccess()
+	deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+		return nil, &taxonomy.PackageSummary{
+			SkippedTests:     3,
+			SkippedTestNames: []string{"TestA", "TestB", "TestC"},
+		}, nil
+	}
+	result, err := runQualityStep([]string{"fake/pkg"}, "/tmp", io.Discard, deps)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SkippedTests != 3 {
+		t.Errorf("expected SkippedTests=3, got %d", result.SkippedTests)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Task 2.4: Unit tests for runClassifyStep
 // ---------------------------------------------------------------------------

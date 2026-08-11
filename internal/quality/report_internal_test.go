@@ -428,6 +428,10 @@ func TestWriteSkippedTests_Rendering(t *testing.T) {
 		if strings.Contains(out, "TestFunc20") {
 			t.Errorf("expected 'TestFunc20' to be truncated, got %q", out)
 		}
+		// Header should show the full count (25), not truncated count.
+		if !strings.Contains(out, "25 test function(s) skipped") {
+			t.Errorf("expected '25 test function(s) skipped' in header, got %q", out)
+		}
 		// Truncation message.
 		if !strings.Contains(out, "... and 5 more") {
 			t.Errorf("expected '... and 5 more' in output, got %q", out)

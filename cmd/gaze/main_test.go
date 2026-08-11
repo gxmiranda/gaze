@@ -1319,6 +1319,20 @@ func TestMergeSummaries_SkippedTests(t *testing.T) {
 	if len(got.SkippedTestNames) != 3 {
 		t.Errorf("SkippedTestNames len = %d, want 3", len(got.SkippedTestNames))
 	}
+	// Verify content, not just length.
+	wantNames := []string{"TestA", "TestB", "TestC"}
+	for _, want := range wantNames {
+		found := false
+		for _, name := range got.SkippedTestNames {
+			if name == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("SkippedTestNames missing %q, got %v", want, got.SkippedTestNames)
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -1422,6 +1436,29 @@ func TestRunQuality_EmptyResults_JSON_ProducesValidJSON(t *testing.T) {
 	}
 	if len(arr) != 0 {
 		t.Errorf("expected empty quality_reports array, got %d elements", len(arr))
+	}
+	// Verify quality_summary contains skipped test data.
+	summary, ok := parsed["quality_summary"]
+	if !ok {
+		t.Fatal("expected 'quality_summary' key in JSON output")
+	}
+	summaryMap, ok := summary.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected quality_summary to be an object, got %T", summary)
+	}
+	skipped, ok := summaryMap["skipped_tests"]
+	if !ok {
+		t.Error("expected 'skipped_tests' in quality_summary")
+	} else if skippedCount, ok := skipped.(float64); !ok || skippedCount == 0 {
+		t.Errorf("expected skipped_tests > 0, got %v", skipped)
+	}
+	if names, ok := summaryMap["skipped_test_names"]; ok {
+		namesArr, ok := names.([]interface{})
+		if !ok {
+			t.Errorf("expected skipped_test_names to be an array, got %T", names)
+		} else if len(namesArr) == 0 {
+			t.Error("expected non-empty skipped_test_names array")
+		}
 	}
 }
 

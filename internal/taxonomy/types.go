@@ -475,8 +475,9 @@ type PackageSummary struct {
 	SkippedTests int `json:"skipped_tests"`
 
 	// SkippedTestNames lists the names of test functions that
-	// were skipped due to unresolvable targets. Truncated to
-	// the first 20 names when the list is large.
+	// were skipped due to unresolvable targets. The full list
+	// is preserved for machine-readable consumption; display
+	// layers truncate to 20 names.
 	SkippedTestNames []string `json:"skipped_test_names,omitempty"`
 }
 
