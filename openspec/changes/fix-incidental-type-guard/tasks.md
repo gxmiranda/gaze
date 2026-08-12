@@ -31,3 +31,4 @@
 - [x] 4.3 Verify constitution alignment: Principle I (Accuracy) — false classification bug is fixed. Principle IV (Testability) — regression tests verify observable behavior. Both PASS.
 
 <!-- spec-review: passed -->
+<!-- code-review: passed -->
