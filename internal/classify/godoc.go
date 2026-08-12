@@ -26,9 +26,17 @@ var contractualKeywords = []struct {
 }
 
 // incidentalKeywords are words in godoc that suggest incidental
-// behavior.
-var incidentalKeywords = []string{
-	"logs", "prints", "traces", "debugs",
+// behavior, scoped to applicable side effect types. Only I/O-related
+// effects are penalized — P0 effects like ReturnValue are never demoted
+// by logging/debugging keywords. See issue #105.
+var incidentalKeywords = []struct {
+	keyword   string
+	appliesTo []taxonomy.SideEffectType
+}{
+	{"logs", ioEffectTypes},
+	{"prints", ioEffectTypes},
+	{"traces", ioEffectTypes},
+	{"debugs", ioEffectTypes},
 }
 
 // maxGodocWeight is the maximum weight for godoc comment signals.
@@ -50,13 +58,18 @@ func AnalyzeGodocSignal(funcDecl *ast.FuncDecl, effectType taxonomy.SideEffectTy
 
 	docText := strings.ToLower(funcDecl.Doc.Text())
 
-	// Check incidental keywords first.
-	for _, kw := range incidentalKeywords {
-		if strings.Contains(docText, kw) {
-			return taxonomy.Signal{
-				Source:    "godoc",
-				Weight:    -maxGodocWeight,
-				Reasoning: "godoc contains \"" + kw + "\" suggesting incidental behavior",
+	// Check incidental keywords first (type-guarded — see issue #105).
+	for _, ik := range incidentalKeywords {
+		if !strings.Contains(docText, ik.keyword) {
+			continue
+		}
+		for _, applicable := range ik.appliesTo {
+			if applicable == effectType {
+				return taxonomy.Signal{
+					Source:    "godoc",
+					Weight:    -maxGodocWeight,
+					Reasoning: "godoc contains \"" + ik.keyword + "\" suggesting incidental behavior",
+				}
 			}
 		}
 	}

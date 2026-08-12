@@ -109,7 +109,7 @@ func TestNamingSignal_ContractualPrefixes(t *testing.T) {
 }
 
 // TestNamingSignal_IncidentalPrefixes tests naming convention
-// detection for incidental function names.
+// detection for incidental function names with I/O effect types.
 func TestNamingSignal_IncidentalPrefixes(t *testing.T) {
 	tests := []struct {
 		funcName string
@@ -124,10 +124,49 @@ func TestNamingSignal_IncidentalPrefixes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.funcName, func(t *testing.T) {
-			s := classify.AnalyzeNamingSignal(tt.funcName, taxonomy.ReturnValue)
+			// I/O effect types should be penalized by incidental prefixes.
+			s := classify.AnalyzeNamingSignal(tt.funcName, taxonomy.LogWrite)
 			if s.Weight >= 0 {
-				t.Errorf("AnalyzeNamingSignal(%q) weight = %d, want negative",
+				t.Errorf("AnalyzeNamingSignal(%q, LogWrite) weight = %d, want negative",
 					tt.funcName, s.Weight)
+			}
+		})
+	}
+}
+
+// TestNamingSignal_IncidentalTypeGuard verifies that incidental naming
+// prefixes only apply to I/O effect types, not to P0 effects like
+// ReturnValue. See issue #105.
+func TestNamingSignal_IncidentalTypeGuard(t *testing.T) {
+	tests := []struct {
+		name       string
+		funcName   string
+		effectType taxonomy.SideEffectType
+		wantWeight int
+	}{
+		// P0 effects on incidental-prefixed functions → no penalty.
+		{"ReturnValue/LogAndCompute", "LogAndCompute", taxonomy.ReturnValue, 0},
+		{"ErrorReturn/DebugAndFetch", "DebugAndFetch", taxonomy.ErrorReturn, 0},
+		{"ReceiverMutation/traceState", "traceState", taxonomy.ReceiverMutation, 0},
+		{"PointerArgMutation/printToBuffer", "printToBuffer", taxonomy.PointerArgMutation, 0},
+		{"SentinelError/LogError", "LogError", taxonomy.SentinelError, 0},
+
+		// Non-I/O P1/P2 effects → no penalty (boundary: not in appliesTo).
+		{"ChannelSend/LogEvents", "LogEvents", taxonomy.ChannelSend, 0},
+		{"WriterOutput/LogAndWrite", "LogAndWrite", taxonomy.WriterOutput, 0},
+
+		// I/O effects on incidental-prefixed functions → penalty applied.
+		{"LogWrite/LogAndCompute", "LogAndCompute", taxonomy.LogWrite, -10},
+		{"StdoutWrite/PrintSummary", "PrintSummary", taxonomy.StdoutWrite, -10},
+		{"StderrWrite/logWarning", "logWarning", taxonomy.StderrWrite, -10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := classify.AnalyzeNamingSignal(tt.funcName, tt.effectType)
+			if s.Weight != tt.wantWeight {
+				t.Errorf("AnalyzeNamingSignal(%q, %s) weight = %d, want %d",
+					tt.funcName, tt.effectType, s.Weight, tt.wantWeight)
 			}
 		})
 	}
@@ -952,5 +991,80 @@ func TestClassify_Determinism(t *testing.T) {
 					se2.Classification.Confidence)
 			}
 		}
+	}
+}
+
+// TestComputeScore_Issue105_LogAndComputeReturnValue is an integration
+// test that verifies the full scoring path for the issue #105 scenario:
+// a function named "LogAndCompute" with a ReturnValue effect, exported,
+// with godoc containing only "logs" (no contractual keywords). Before
+// the fix, incidental naming (-10) and godoc (-15) penalties plus the
+// contradiction penalty (-20) overwhelmed the P0 tier boost (+25) and
+// visibility (+8), yielding confidence 38 → incidental. After the fix,
+// the naming and godoc incidental signals are skipped for ReturnValue,
+// yielding confidence 83 → contractual.
+func TestComputeScore_Issue105_LogAndComputeReturnValue(t *testing.T) {
+	// Simulate the signals that classifySideEffect would produce for
+	// an exported function "LogAndCompute" with ReturnValue effect and
+	// godoc "LogAndCompute logs the request and computes a result."
+
+	// After the fix:
+	// - naming: "Log" prefix doesn't apply to ReturnValue → zero signal
+	// - godoc: "logs" keyword doesn't apply to ReturnValue → zero signal
+	// - visibility: exported function → +8
+	// No naming/godoc incidental signals → no contradiction → no -20 penalty
+	// Expected: base(50) + tierBoost(25) + visibility(8) = 83 → contractual
+	signals := []taxonomy.Signal{
+		// Visibility signal: exported function.
+		{Source: "visibility", Weight: 8, Reasoning: "exported function"},
+		// Naming: zero signal (type guard skipped incidental prefix).
+		// Godoc: zero signal (type guard skipped incidental keyword).
+	}
+
+	result := classify.ComputeScore(taxonomy.ReturnValue, signals, nil)
+
+	if result.Label != taxonomy.Contractual {
+		t.Errorf("issue #105: LogAndCompute ReturnValue: label = %q, want %q",
+			result.Label, taxonomy.Contractual)
+	}
+	if result.Confidence < 80 {
+		t.Errorf("issue #105: LogAndCompute ReturnValue: confidence = %d, want >= 80",
+			result.Confidence)
+	}
+	if result.Confidence != 83 {
+		t.Errorf("issue #105: LogAndCompute ReturnValue: confidence = %d, want 83",
+			result.Confidence)
+	}
+
+	// Verify no contradiction penalty was applied.
+	for _, s := range result.Signals {
+		if s.Source == "contradiction" {
+			t.Error("issue #105: contradiction penalty should not be applied when " +
+				"incidental signals are skipped by type guard")
+		}
+	}
+}
+
+// TestComputeScore_Issue105_LogAndComputeLogWrite is the counterpart:
+// verify that I/O effects on the same function still get the incidental
+// classification. LogWrite on "LogAndCompute" should still be penalized.
+func TestComputeScore_Issue105_LogAndComputeLogWrite(t *testing.T) {
+	// For LogWrite on LogAndCompute:
+	// - naming: "Log" prefix applies to LogWrite → -10
+	// - godoc: "logs" keyword applies to LogWrite → -15
+	// - visibility: exported function → +8
+	// Has both positive(+8) and negative(-10,-15) → contradiction(-20)
+	// Expected: base(50) + tierBoost(0, P2) + 8 - 10 - 15 - 20 = 13 → incidental
+	signals := []taxonomy.Signal{
+		{Source: "visibility", Weight: 8, Reasoning: "exported function"},
+		{Source: "naming", Weight: -10, Reasoning: "function name prefix Log*"},
+		{Source: "godoc", Weight: -15, Reasoning: "godoc contains logs"},
+	}
+
+	result := classify.ComputeScore(taxonomy.LogWrite, signals, nil)
+
+	if result.Label != taxonomy.Incidental {
+		t.Errorf("LogAndCompute LogWrite: label = %q, want %q",
+			result.Label, taxonomy.Incidental)
 	}
 }

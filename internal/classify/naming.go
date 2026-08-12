@@ -35,13 +35,30 @@ var contractualPrefixes = []struct {
 	{"New", []taxonomy.SideEffectType{taxonomy.ReturnValue, taxonomy.ErrorReturn}},
 }
 
-// incidentalPrefixes are function name prefixes that signal
-// incidental behavior.
-var incidentalPrefixes = []string{
-	"log", "Log",
-	"debug", "Debug",
-	"trace", "Trace",
-	"print", "Print",
+// incidentalPrefixes are function name prefixes that signal incidental
+// behavior, scoped to applicable side effect types. Only I/O-related
+// effects are penalized — P0 effects like ReturnValue are never demoted
+// by logging/debugging name prefixes. See issue #105.
+var incidentalPrefixes = []struct {
+	prefix    string
+	appliesTo []taxonomy.SideEffectType
+}{
+	{"log", ioEffectTypes},
+	{"Log", ioEffectTypes},
+	{"debug", ioEffectTypes},
+	{"Debug", ioEffectTypes},
+	{"trace", ioEffectTypes},
+	{"Trace", ioEffectTypes},
+	{"print", ioEffectTypes},
+	{"Print", ioEffectTypes},
+}
+
+// ioEffectTypes is the set of I/O-related side effect types that
+// incidental naming and godoc signals apply to.
+var ioEffectTypes = []taxonomy.SideEffectType{
+	taxonomy.LogWrite,
+	taxonomy.StdoutWrite,
+	taxonomy.StderrWrite,
 }
 
 // maxNamingWeight is the maximum weight for naming convention signals.
@@ -63,13 +80,18 @@ const sentinelNamingWeight = 30
 // naming conventions and returns a signal indicating whether the
 // side effect is likely contractual or incidental based on the name.
 func AnalyzeNamingSignal(funcName string, effectType taxonomy.SideEffectType) taxonomy.Signal {
-	// Check incidental prefixes first.
-	for _, prefix := range incidentalPrefixes {
-		if strings.HasPrefix(funcName, prefix) {
-			return taxonomy.Signal{
-				Source:    "naming",
-				Weight:    -maxNamingWeight,
-				Reasoning: "function name prefix " + prefix + "* suggests incidental behavior",
+	// Check incidental prefixes first (type-guarded — see issue #105).
+	for _, ip := range incidentalPrefixes {
+		if !strings.HasPrefix(funcName, ip.prefix) {
+			continue
+		}
+		for _, applicable := range ip.appliesTo {
+			if applicable == effectType {
+				return taxonomy.Signal{
+					Source:    "naming",
+					Weight:    -maxNamingWeight,
+					Reasoning: "function name prefix " + ip.prefix + "* suggests incidental behavior",
+				}
 			}
 		}
 	}

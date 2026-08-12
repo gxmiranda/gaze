@@ -210,7 +210,8 @@ func TestAnalyzeGodocSignal_ContractualKeywords(t *testing.T) {
 // TestAnalyzeGodocSignal_IncidentalPriority verifies that when the
 // godoc contains both an incidental keyword ("logs") and a
 // contractual keyword ("returns"), the incidental signal wins with
-// weight -15 (FR-005).
+// weight -15 for I/O effect types (FR-005). See issue #105 for the
+// type guard that scopes this to I/O effects only.
 func TestAnalyzeGodocSignal_IncidentalPriority(t *testing.T) {
 	tests := []struct {
 		name string
@@ -241,7 +242,8 @@ func TestAnalyzeGodocSignal_IncidentalPriority(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fd := makeFuncDeclWithDoc("TestFunc", tt.doc)
-			sig := classify.AnalyzeGodocSignal(fd, taxonomy.ReturnValue)
+			// I/O effect type: incidental keyword wins over contractual.
+			sig := classify.AnalyzeGodocSignal(fd, taxonomy.LogWrite)
 
 			if sig.Weight != -15 {
 				t.Errorf("weight = %d, want -15 (incidental wins)", sig.Weight)
@@ -254,16 +256,96 @@ func TestAnalyzeGodocSignal_IncidentalPriority(t *testing.T) {
 }
 
 // TestAnalyzeGodocSignal_IncidentalOnly verifies that an incidental
-// keyword alone produces -15 weight.
+// keyword alone produces -15 weight for I/O effect types.
 func TestAnalyzeGodocSignal_IncidentalOnly(t *testing.T) {
 	fd := makeFuncDeclWithDoc("LogError", "LogError logs the error to stderr.")
-	sig := classify.AnalyzeGodocSignal(fd, taxonomy.ReturnValue)
+	// I/O effect type: incidental keyword applies.
+	sig := classify.AnalyzeGodocSignal(fd, taxonomy.LogWrite)
 
 	if sig.Weight != -15 {
 		t.Errorf("weight = %d, want -15", sig.Weight)
 	}
 	if sig.Source != "godoc" {
 		t.Errorf("source = %q, want %q", sig.Source, "godoc")
+	}
+}
+
+// TestAnalyzeGodocSignal_IncidentalTypeGuard verifies that incidental
+// godoc keywords only apply to I/O effect types, not to P0 effects
+// like ReturnValue. See issue #105.
+func TestAnalyzeGodocSignal_IncidentalTypeGuard(t *testing.T) {
+	tests := []struct {
+		name       string
+		funcName   string
+		doc        string
+		effectType taxonomy.SideEffectType
+		wantWeight int
+	}{
+		// P0 effects with incidental keywords → no penalty.
+		{
+			name:       "ReturnValue/logs",
+			funcName:   "LogAndCompute",
+			doc:        "LogAndCompute logs the request and computes a result.",
+			effectType: taxonomy.ReturnValue,
+			wantWeight: 0,
+		},
+		{
+			name:       "ErrorReturn/debugs",
+			funcName:   "DebugAndFetch",
+			doc:        "DebugAndFetch debugs the connection and fetches data.",
+			effectType: taxonomy.ErrorReturn,
+			wantWeight: 0,
+		},
+		{
+			name:       "ReceiverMutation/traces",
+			funcName:   "TraceState",
+			doc:        "TraceState traces state changes on the receiver.",
+			effectType: taxonomy.ReceiverMutation,
+			wantWeight: 0,
+		},
+
+		// Non-I/O P1/P2 effects → no penalty (boundary: not in appliesTo).
+		{
+			name:       "ChannelSend/logs",
+			funcName:   "LogEvents",
+			doc:        "LogEvents logs events and sends them on a channel.",
+			effectType: taxonomy.ChannelSend,
+			wantWeight: 0,
+		},
+
+		// I/O effects with incidental keywords → penalty applied.
+		{
+			name:       "LogWrite/logs",
+			funcName:   "LogAndCompute",
+			doc:        "LogAndCompute logs the request and computes a result.",
+			effectType: taxonomy.LogWrite,
+			wantWeight: -15,
+		},
+		{
+			name:       "StderrWrite/prints",
+			funcName:   "PrintWarning",
+			doc:        "PrintWarning prints the warning to stderr.",
+			effectType: taxonomy.StderrWrite,
+			wantWeight: -15,
+		},
+		{
+			name:       "StdoutWrite/prints",
+			funcName:   "PrintSummary",
+			doc:        "PrintSummary prints the summary to stdout.",
+			effectType: taxonomy.StdoutWrite,
+			wantWeight: -15,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fd := makeFuncDeclWithDoc(tt.funcName, tt.doc)
+			sig := classify.AnalyzeGodocSignal(fd, tt.effectType)
+			if sig.Weight != tt.wantWeight {
+				t.Errorf("AnalyzeGodocSignal(%q, %s) weight = %d, want %d",
+					tt.funcName, tt.effectType, sig.Weight, tt.wantWeight)
+			}
+		})
 	}
 }
 
