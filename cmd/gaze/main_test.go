@@ -1393,6 +1393,33 @@ func TestRunQuality_EmptyResults_MaxOverSpecThreshold_ExitsNonZero(t *testing.T)
 	}
 }
 
+func TestRunQuality_EmptyResults_BothThresholds_ExitsNonZero(t *testing.T) {
+	// When both --min-contract-coverage and --max-over-specification are set
+	// and results are empty, the || gate at line 1210 must trigger.
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns:             []string{"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle"},
+		format:               "text",
+		minContractCoverage:  10,
+		maxOverSpecification: 5,
+		stdout:               &stdout,
+		stderr:               &stderr,
+	})
+	if err == nil {
+		t.Fatal("expected error when both threshold flags are set with zero results")
+	}
+	errMsg := err.Error()
+	if !strings.Contains(errMsg, "quality gate failed") {
+		t.Errorf("expected 'quality gate failed' in error, got: %v", err)
+	}
+	if !strings.Contains(errMsg, "--min-contract-coverage=10") {
+		t.Errorf("expected '--min-contract-coverage=10' in error message, got: %v", err)
+	}
+	if !strings.Contains(errMsg, "--max-over-specification=5") {
+		t.Errorf("expected '--max-over-specification=5' in error message, got: %v", err)
+	}
+}
+
 func TestRunQuality_EmptyResults_ZeroThreshold_ExitsZero(t *testing.T) {
 	// --min-contract-coverage=0 is semantically "disabled" —
 	// zero-means-disabled per the > 0 check.

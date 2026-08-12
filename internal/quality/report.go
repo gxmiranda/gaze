@@ -205,9 +205,10 @@ func writeSSADiagnostics(w io.Writer, summary *taxonomy.PackageSummary, s qualit
 	}
 }
 
-// maxSkippedTestNames is the maximum number of skipped test names
-// to display in the text report before truncating.
-const maxSkippedTestNames = 20
+// MaxSkippedTestDisplay is the maximum number of skipped test names
+// to display in text output before truncating. Shared between the
+// quality text report and the CLI empty-results summary.
+const MaxSkippedTestDisplay = 20
 
 // writeSkippedTests writes a section listing test functions that were
 // skipped because no target function could be resolved (e.g., BDD/Ginkgo
@@ -221,14 +222,14 @@ func writeSkippedTests(w io.Writer, summary *taxonomy.PackageSummary, s qualityS
 		s.warn.Render("⚠"),
 		summary.SkippedTests)
 	limit := summary.SkippedTests
-	if limit > maxSkippedTestNames {
-		limit = maxSkippedTestNames
+	if limit > MaxSkippedTestDisplay {
+		limit = MaxSkippedTestDisplay
 	}
 	for i := 0; i < limit && i < len(summary.SkippedTestNames); i++ {
 		_, _ = fmt.Fprintf(w, "      - %s\n", summary.SkippedTestNames[i])
 	}
-	if summary.SkippedTests > maxSkippedTestNames {
-		_, _ = fmt.Fprintf(w, "      ... and %d more\n", summary.SkippedTests-maxSkippedTestNames)
+	if summary.SkippedTests > MaxSkippedTestDisplay {
+		_, _ = fmt.Fprintf(w, "      ... and %d more\n", summary.SkippedTests-MaxSkippedTestDisplay)
 	}
 	_, _ = fmt.Fprintln(w, s.muted.Render("    Use --target=FuncName to specify target functions manually."))
 }

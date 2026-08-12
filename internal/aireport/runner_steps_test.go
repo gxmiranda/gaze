@@ -201,7 +201,7 @@ func fakeDepsSuccess() qualityPipelineDeps {
 
 func TestRunQualityForPackage_DI_Success(t *testing.T) {
 	deps := fakeDepsSuccess()
-	reports, degraded, skipped := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	reports, degraded, skipped, _ := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
 	if reports == nil {
 		t.Fatal("expected non-nil reports on success path")
 	}
@@ -221,7 +221,7 @@ func TestRunQualityForPackage_DI_AnalysisError(t *testing.T) {
 	deps.loadAndAnalyze = func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
 		return nil, fmt.Errorf("analysis failed")
 	}
-	reports, degraded, skipped := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	reports, degraded, skipped, _ := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
 	if reports != nil {
 		t.Errorf("expected nil reports on analysis error, got %d", len(reports))
 	}
@@ -238,7 +238,7 @@ func TestRunQualityForPackage_DI_EmptyResults(t *testing.T) {
 	deps.loadAndAnalyze = func(_ string, _ analysis.Options) ([]taxonomy.AnalysisResult, error) {
 		return []taxonomy.AnalysisResult{}, nil
 	}
-	reports, degraded, skipped := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	reports, degraded, skipped, _ := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
 	if reports != nil {
 		t.Errorf("expected nil reports on empty results, got %d", len(reports))
 	}
@@ -255,7 +255,7 @@ func TestRunQualityForPackage_DI_ClassifyError(t *testing.T) {
 	deps.classifyResults = func(_ []taxonomy.AnalysisResult, _ string, _ *config.GazeConfig, _ []*packages.Package) ([]taxonomy.AnalysisResult, error) {
 		return nil, fmt.Errorf("classify failed")
 	}
-	reports, degraded, skipped := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	reports, degraded, skipped, _ := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
 	if reports != nil {
 		t.Errorf("expected nil reports on classify error, got %d", len(reports))
 	}
@@ -272,7 +272,7 @@ func TestRunQualityForPackage_DI_LoadTestError(t *testing.T) {
 	deps.loadTestPkg = func(_ string) (*packages.Package, error) {
 		return nil, fmt.Errorf("no test package found")
 	}
-	reports, degraded, skipped := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	reports, degraded, skipped, _ := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
 	if reports != nil {
 		t.Errorf("expected nil reports on loadTestPkg error, got %d", len(reports))
 	}
@@ -289,7 +289,7 @@ func TestRunQualityForPackage_DI_AssessError(t *testing.T) {
 	deps.assess = func(_ []taxonomy.AnalysisResult, _ *packages.Package, _ quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
 		return nil, nil, fmt.Errorf("assess failed")
 	}
-	reports, degraded, skipped := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	reports, degraded, skipped, _ := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
 	if reports != nil {
 		t.Errorf("expected nil reports on assess error, got %d", len(reports))
 	}
@@ -309,9 +309,10 @@ func TestRunQualityForPackage_DI_SSADegraded(t *testing.T) {
 			AverageContractCoverage: 50,
 			SSADegraded:             true,
 			SkippedTests:            2,
+			SkippedTestNames:        []string{"TestSkipA", "TestSkipB"},
 		}, nil
 	}
-	reports, degraded, skipped := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
+	reports, degraded, skipped, skippedNames := runQualityForPackage("fake/pkg", config.DefaultConfig(), nil, io.Discard, deps)
 	if reports == nil {
 		t.Fatal("expected non-nil reports on SSA degradation")
 	}
@@ -320,6 +321,9 @@ func TestRunQualityForPackage_DI_SSADegraded(t *testing.T) {
 	}
 	if skipped != 2 {
 		t.Errorf("expected 2 skipped, got %d", skipped)
+	}
+	if len(skippedNames) != 2 {
+		t.Errorf("expected 2 skipped names, got %d", len(skippedNames))
 	}
 }
 

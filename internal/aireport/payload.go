@@ -54,6 +54,9 @@ type ReportSummary struct {
 	// because no target function could be resolved (e.g., BDD/Ginkgo
 	// suites using dynamic dispatch).
 	SkippedTests int
+
+	// SkippedTestNames lists the names of skipped test functions.
+	SkippedTestNames []string
 }
 
 // ReportPayload is the combined analysis data passed to the AI adapter

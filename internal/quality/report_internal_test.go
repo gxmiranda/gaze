@@ -405,6 +405,31 @@ func TestWriteSkippedTests_Rendering(t *testing.T) {
 		}
 	})
 
+	t.Run("count_exceeds_names_length", func(t *testing.T) {
+		// Invariant violation: SkippedTests > len(SkippedTestNames).
+		// The defensive guard (i < len(summary.SkippedTestNames)) must
+		// prevent out-of-bounds access.
+		var buf bytes.Buffer
+		summary := &taxonomy.PackageSummary{
+			SkippedTests:     5,
+			SkippedTestNames: []string{"TestAlpha", "TestBeta"},
+		}
+		writeSkippedTests(&buf, summary, s)
+		out := buf.String()
+		// Header should show the count from SkippedTests (5), not len(names).
+		if !strings.Contains(out, "5 test function(s) skipped") {
+			t.Errorf("expected '5 test function(s) skipped' in header, got %q", out)
+		}
+		// Available names should appear.
+		if !strings.Contains(out, "TestAlpha") {
+			t.Errorf("expected 'TestAlpha' in output, got %q", out)
+		}
+		if !strings.Contains(out, "TestBeta") {
+			t.Errorf("expected 'TestBeta' in output, got %q", out)
+		}
+		// No panic or out-of-bounds — the function should complete normally.
+	})
+
 	t.Run("truncation_at_20", func(t *testing.T) {
 		var buf bytes.Buffer
 		names := make([]string, 25)

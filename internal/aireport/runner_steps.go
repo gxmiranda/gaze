@@ -142,6 +142,7 @@ type qualityStepResult struct {
 	SSADegraded         bool
 	SSADegradedPackages []string
 	SkippedTests        int
+	SkippedTestNames    []string
 }
 
 // runQualityStep runs the quality pipeline across all matched packages and
@@ -166,16 +167,23 @@ func runQualityStep(patterns []string, moduleDir string, stderr io.Writer, deps 
 	var allReports []taxonomy.QualityReport
 	var degradedPkgs []string
 	totalSkipped := 0
+	var allSkippedNames []string
 	for _, pkgPath := range pkgPaths {
-		reports, degradedPkg, skipped := runQualityForPackage(pkgPath, gazeConfig, modPkgs, stderr, deps...)
+		reports, degradedPkg, skipped, skippedNames := runQualityForPackage(pkgPath, gazeConfig, modPkgs, stderr, deps...)
 		if degradedPkg != "" {
 			degradedPkgs = append(degradedPkgs, degradedPkg)
 		}
 		allReports = append(allReports, reports...)
 		totalSkipped += skipped
+		allSkippedNames = append(allSkippedNames, skippedNames...)
 	}
 
+	// BuildPackageSummary aggregates report-level data only; skipped test
+	// data and SSA degradation must be set post-hoc since skipped tests
+	// don't produce QualityReport entries.
 	summary := quality.BuildPackageSummary(allReports)
+	summary.SkippedTests = totalSkipped
+	summary.SkippedTestNames = allSkippedNames
 	if len(degradedPkgs) > 0 {
 		summary.SSADegraded = true
 		summary.SSADegradedPackages = degradedPkgs
@@ -197,23 +205,25 @@ func runQualityStep(patterns []string, moduleDir string, stderr io.Writer, deps 
 		SSADegraded:         len(degradedPkgs) > 0,
 		SSADegradedPackages: degradedPkgs,
 		SkippedTests:        totalSkipped,
+		SkippedTestNames:    allSkippedNames,
 	}, nil
 }
 
 // runQualityForPackage runs the quality pipeline on a single package.
 // modPkgs should be pre-resolved by the caller (hoist LoadModule out of loops).
-// Returns (nil, "", 0) if the package has no tests or analysis fails.
+// Returns (nil, "", 0, nil) if the package has no tests or analysis fails.
 // The second return value is the degraded package path (empty string
 // if not degraded, package path if SSA construction failed).
 // The third return value is the number of skipped test functions
 // (tests where no target function could be resolved).
+// The fourth return value is the names of skipped test functions.
 func runQualityForPackage(
 	pkgPath string,
 	gazeConfig *config.GazeConfig,
 	modPkgs []*packages.Package,
 	stderr io.Writer,
 	deps ...qualityPipelineDeps,
-) ([]taxonomy.QualityReport, string, int) {
+) ([]taxonomy.QualityReport, string, int, []string) {
 	d := resolveQualityDeps(deps)
 
 	includeUnexported := loader.IsMainPkg(pkgPath)
@@ -223,34 +233,36 @@ func runQualityForPackage(
 	analysisOpts := analysis.Options{IncludeUnexported: includeUnexported}
 	results, err := d.loadAndAnalyze(pkgPath, analysisOpts)
 	if err != nil || len(results) == 0 {
-		return nil, "", 0
+		return nil, "", 0, nil
 	}
 
 	cfg := gazeConfig
 	classified, err := d.classifyResults(results, pkgPath, cfg, modPkgs)
 	if err != nil || len(classified) == 0 {
-		return nil, "", 0
+		return nil, "", 0, nil
 	}
 
 	testPkg, err := d.loadTestPkg(pkgPath)
 	if err != nil {
-		return nil, "", 0
+		return nil, "", 0, nil
 	}
 
 	qualOpts := quality.Options{Stderr: stderr}
 	reports, summary, err := d.assess(classified, testPkg, qualOpts)
 	if err != nil {
-		return nil, "", 0
+		return nil, "", 0, nil
 	}
 
 	skipped := 0
+	var skippedNames []string
 	if summary != nil {
 		skipped = summary.SkippedTests
+		skippedNames = summary.SkippedTestNames
 	}
 	if summary != nil && summary.SSADegraded {
-		return reports, pkgPath, skipped
+		return reports, pkgPath, skipped, skippedNames
 	}
-	return reports, "", skipped
+	return reports, "", skipped, skippedNames
 }
 
 // classifyStepResult holds the outputs of runClassifyStep.

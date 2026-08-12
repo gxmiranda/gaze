@@ -268,6 +268,10 @@ func Assess(
 }
 
 // BuildPackageSummary aggregates QualityReports into a PackageSummary.
+// It computes report-level statistics only (coverage, over-specification,
+// detection confidence, worst tests). Skipped test data (SkippedTests,
+// SkippedTestNames) and SSA degradation status must be set by the caller
+// post-hoc, since skipped tests don't produce QualityReport entries.
 func BuildPackageSummary(reports []taxonomy.QualityReport) *taxonomy.PackageSummary {
 	if len(reports) == 0 {
 		return &taxonomy.PackageSummary{}

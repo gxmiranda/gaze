@@ -1163,10 +1163,7 @@ func runQuality(p qualityParams) error {
 		allSummaries = append(allSummaries, summary)
 	}
 
-	// maxSkippedTestDisplay is the maximum number of skipped test names
-	// to display in stdout output before truncating. Mirrors
-	// quality.maxSkippedTestNames in internal/quality/report.go.
-	const maxSkippedTestDisplay = 20
+	maxSkippedTestDisplay := quality.MaxSkippedTestDisplay
 
 	// Merge summaries into a single aggregate summary.
 	// This must happen before the empty-result check so that
@@ -1176,16 +1173,16 @@ func runQuality(p qualityParams) error {
 	if len(allReports) == 0 {
 		// No test-target pairs were resolved. Print a summary to
 		// stdout so the user knows what happened and how to fix it.
-		totalTestFuncs := merged.TotalTests + merged.SkippedTests
 		switch p.format {
 		case "json":
 			// Produce valid JSON even when no reports exist.
 			// Use a non-nil empty slice so JSON encodes as [] not null.
 			emptyReports := make([]taxonomy.QualityReport, 0)
 			if err := quality.WriteJSON(p.stdout, emptyReports, merged); err != nil {
-				return err
+				return fmt.Errorf("writing empty quality JSON: %w", err)
 			}
 		default:
+			totalTestFuncs := merged.TotalTests + merged.SkippedTests
 			_, _ = fmt.Fprintf(p.stdout, "Quality: 0 of %d test functions mapped to a target\n", totalTestFuncs)
 			if merged.SkippedTests > 0 {
 				_, _ = fmt.Fprintf(p.stdout, "\nSkipped test functions (%d):\n", merged.SkippedTests)
@@ -1219,11 +1216,11 @@ func runQuality(p qualityParams) error {
 	switch p.format {
 	case "json":
 		if err := quality.WriteJSON(p.stdout, allReports, merged); err != nil {
-			return err
+			return fmt.Errorf("writing quality JSON: %w", err)
 		}
 	default:
 		if err := quality.WriteText(p.stdout, allReports, merged); err != nil {
-			return err
+			return fmt.Errorf("writing quality text report: %w", err)
 		}
 	}
 
