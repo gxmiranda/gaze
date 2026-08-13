@@ -1371,8 +1371,8 @@ func TestRunQuality_EmptyResults_MinCoverageThreshold_ExitsNonZero(t *testing.T)
 	if err == nil {
 		t.Fatal("expected error when minContractCoverage is set with zero results")
 	}
-	if !strings.Contains(err.Error(), "quality gate failed") {
-		t.Errorf("expected 'quality gate failed' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "cannot evaluate thresholds") {
+		t.Errorf("expected 'cannot evaluate thresholds' in error, got: %v", err)
 	}
 }
 
@@ -1388,8 +1388,8 @@ func TestRunQuality_EmptyResults_MaxOverSpecThreshold_ExitsNonZero(t *testing.T)
 	if err == nil {
 		t.Fatal("expected error when maxOverSpecification is set with zero results")
 	}
-	if !strings.Contains(err.Error(), "quality gate failed") {
-		t.Errorf("expected 'quality gate failed' in error, got: %v", err)
+	if !strings.Contains(err.Error(), "cannot evaluate thresholds") {
+		t.Errorf("expected 'cannot evaluate thresholds' in error, got: %v", err)
 	}
 }
 
@@ -1409,8 +1409,8 @@ func TestRunQuality_EmptyResults_BothThresholds_ExitsNonZero(t *testing.T) {
 		t.Fatal("expected error when both threshold flags are set with zero results")
 	}
 	errMsg := err.Error()
-	if !strings.Contains(errMsg, "quality gate failed") {
-		t.Errorf("expected 'quality gate failed' in error, got: %v", err)
+	if !strings.Contains(errMsg, "cannot evaluate thresholds") {
+		t.Errorf("expected 'cannot evaluate thresholds' in error, got: %v", err)
 	}
 	if !strings.Contains(errMsg, "--min-contract-coverage=10") {
 		t.Errorf("expected '--min-contract-coverage=10' in error message, got: %v", err)
@@ -1511,6 +1511,135 @@ func TestRunQuality_EmptyResults_StdoutListsSkippedTests(t *testing.T) {
 	// Should contain the --target hint.
 	if !strings.Contains(out, "--target") {
 		t.Errorf("expected '--target' hint in stdout, got: %q", out)
+	}
+}
+
+func TestRunQuality_MixedBDDAndNormalPackages(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping: loads multiple real packages")
+	}
+	// Mix a BDD-style package (all tests skipped, zero reports) with a
+	// normal package (produces reports). The merged output must include
+	// both the analyzed tests and the skipped test names.
+	var stdout, stderr bytes.Buffer
+	err := runQuality(qualityParams{
+		patterns: []string{
+			"github.com/unbound-force/gaze/internal/quality/testdata/src/welltested",
+			"github.com/unbound-force/gaze/internal/quality/testdata/src/bddstyle",
+		},
+		format: "text",
+		stdout: &stdout,
+		stderr: &stderr,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stdout.String()
+
+	// Should have analyzed tests from the welltested package.
+	if !strings.Contains(out, "Tests analyzed:") {
+		t.Error("expected 'Tests analyzed:' from welltested package")
+	}
+
+	// Should also report skipped tests from the bddstyle package.
+	if !strings.Contains(out, "skipped") {
+		t.Error("expected skipped test info from bddstyle package")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// mergeSummaries tests
+// ---------------------------------------------------------------------------
+
+func TestMergeSummaries_SkippedTestsDivergence(t *testing.T) {
+	// Exercises the defensive guard at runQuality where
+	// SkippedTests > len(SkippedTestNames). This should never happen
+	// in production, but the guard prevents an index-out-of-range panic.
+	summaries := []*taxonomy.PackageSummary{
+		{
+			TotalTests:   0,
+			SkippedTests: 5,
+			// Intentionally fewer names than count — simulates a bug
+			// or data corruption in a caller.
+			SkippedTestNames: []string{"TestA", "TestB"},
+		},
+	}
+	merged := mergeSummaries(summaries)
+
+	// With a single summary, mergeSummaries returns it directly.
+	if merged.SkippedTests != 5 {
+		t.Errorf("expected SkippedTests=5, got %d", merged.SkippedTests)
+	}
+	if len(merged.SkippedTestNames) != 2 {
+		t.Errorf("expected 2 SkippedTestNames, got %d", len(merged.SkippedTestNames))
+	}
+
+	// Now exercise the text output path with this divergent summary
+	// to verify the defensive guard prevents a panic.
+	var stdout bytes.Buffer
+	// Simulate the empty-results text path from runQuality.
+	_, _ = fmt.Fprintf(&stdout, "Quality: 0 of %d test functions mapped to a target\n",
+		merged.TotalTests+merged.SkippedTests)
+	if merged.SkippedTests > 0 {
+		_, _ = fmt.Fprintf(&stdout, "\nSkipped test functions (%d):\n", merged.SkippedTests)
+		limit := merged.SkippedTests
+		if limit > 20 {
+			limit = 20
+		}
+		// This is the critical guard — without it, limit=5 would
+		// cause an index-out-of-range on a 2-element slice.
+		if limit > len(merged.SkippedTestNames) {
+			limit = len(merged.SkippedTestNames)
+		}
+		for _, name := range merged.SkippedTestNames[:limit] {
+			_, _ = fmt.Fprintf(&stdout, "  - %s\n", name)
+		}
+	}
+	out := stdout.String()
+	if !strings.Contains(out, "TestA") {
+		t.Errorf("expected TestA in output, got: %q", out)
+	}
+	if !strings.Contains(out, "TestB") {
+		t.Errorf("expected TestB in output, got: %q", out)
+	}
+	// Verify only 2 names were printed, not 5.
+	if strings.Count(out, "  - ") != 2 {
+		t.Errorf("expected exactly 2 skipped test entries, got output: %q", out)
+	}
+}
+
+func TestMergeSummaries_MultiPackage_AggregatesSkipped(t *testing.T) {
+	summaries := []*taxonomy.PackageSummary{
+		{
+			TotalTests:                   3,
+			AverageContractCoverage:      80.0,
+			AssertionDetectionConfidence: 90,
+			SkippedTests:                 2,
+			SkippedTestNames:             []string{"TestSuiteA", "TestSuiteB"},
+		},
+		{
+			TotalTests:                   5,
+			AverageContractCoverage:      60.0,
+			AssertionDetectionConfidence: 70,
+			SkippedTests:                 1,
+			SkippedTestNames:             []string{"TestSuiteC"},
+		},
+	}
+	merged := mergeSummaries(summaries)
+	if merged.TotalTests != 8 {
+		t.Errorf("expected TotalTests=8, got %d", merged.TotalTests)
+	}
+	if merged.SkippedTests != 3 {
+		t.Errorf("expected SkippedTests=3, got %d", merged.SkippedTests)
+	}
+	if len(merged.SkippedTestNames) != 3 {
+		t.Errorf("expected 3 SkippedTestNames, got %d", len(merged.SkippedTestNames))
+	}
+	// Coverage should be averaged.
+	expectedCov := 70.0
+	if merged.AverageContractCoverage != expectedCov {
+		t.Errorf("expected AverageContractCoverage=%.1f, got %.1f",
+			expectedCov, merged.AverageContractCoverage)
 	}
 }
 

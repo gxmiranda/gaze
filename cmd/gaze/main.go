@@ -1205,8 +1205,8 @@ func runQuality(p qualityParams) error {
 
 		// Gate: if quality thresholds are set, fail on zero results.
 		if p.minContractCoverage > 0 || p.maxOverSpecification > 0 {
-			return fmt.Errorf("quality gate failed: no test-target pairs resolved, "+
-				"but threshold flags are set (--min-contract-coverage=%d, --max-over-specification=%d)",
+			return fmt.Errorf("no test-target pairs resolved — cannot evaluate thresholds "+
+				"(--min-contract-coverage=%d, --max-over-specification=%d)",
 				p.minContractCoverage, p.maxOverSpecification)
 		}
 		return nil
