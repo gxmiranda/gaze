@@ -664,8 +664,8 @@ func TestProtectTagPlacement(t *testing.T) {
 		file          string
 		expectedPairs int
 	}{
-		{"commands/gaze-fix.md", 3},
-		{"commands/speckit.testreview.md", 2},
+		{"commands/gaze-fix.md", 1},
+		{"commands/speckit.testreview.md", 1},
 		{"commands/gaze.md", 1},
 	}
 

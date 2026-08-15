@@ -7,6 +7,7 @@ description: >
   or /opsx-apply.
 ---
 
+<protect>
 # Command: /gaze fix
 
 ## Description
@@ -38,7 +39,6 @@ the `gaze-test-generator` agent.
 
 ## Instructions
 
-<protect>
 ### When no arguments are provided
 
 Detect the active workflow and delegate to the corresponding
@@ -81,9 +81,7 @@ implementation command:
    corresponding command file. If they select batch test generation,
    fall through to the "When arguments are provided" section below
    with `./...` as the pattern.
-</protect>
 
-<protect>
 ### When arguments are provided
 
 #### Step 1: Run gaze analysis
@@ -154,7 +152,6 @@ go test -race -count=1 -run "TestGenerated1|TestGenerated2|..." [pattern]
 ```
 
 Report any compilation errors or test failures with context.
-</protect>
 
 #### Step 5: Report
 
@@ -176,7 +173,6 @@ Files modified:
 - path/to/bar.go (GoDoc improved)
 ```
 
-<protect>
 ## Error Handling
 
 - If `gaze` binary is not found: error with install instructions

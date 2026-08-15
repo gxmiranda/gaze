@@ -6,6 +6,7 @@ description: >
 agent: gaze-reporter
 ---
 
+<protect>
 # Command: /gaze
 
 ## Description
@@ -38,7 +39,6 @@ Delegates to the `gaze-reporter` agent which runs the appropriate
 /gaze                           # Full report for ./... (default)
 ```
 
-<protect>
 ## Instructions
 
 Pass `$ARGUMENTS` to the `gaze-reporter` agent. The agent handles
