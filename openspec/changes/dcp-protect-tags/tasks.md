@@ -27,4 +27,6 @@ Each task modifies a different file and can run in parallel.
 - [x] 2.2 Add `TestProtectTagPlacement` to `internal/scaffold/scaffold_test.go` — read each command file from `embed.FS` and assert: (a) correct number of `<protect>`/`</protect>` pairs per file (3 for gaze-fix.md, 2 for speckit.testreview.md, 1 for gaze.md), (b) balanced open/close tags, (c) no tags within YAML frontmatter (between `---` delimiters), (d) no nested protect tags. Run `go test -race -count=1 -short -run TestProtectTagPlacement ./internal/scaffold/...` to verify. [DCP-PROTECT-004, DCP-PROTECT-006]
 
 - [x] 2.3 Constitution alignment verification — confirm the change satisfies the constitution alignment assessment from the proposal: Composability (tags are additive, no new dependencies), Testability (automated test provides regression protection). [Constitution]
+<!-- spec-review: passed -->
+<!-- code-review: passed -->
 <!-- scaffolded by uf vdev -->
