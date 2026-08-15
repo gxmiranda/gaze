@@ -14,12 +14,15 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 Assess the testability of feature specification artifacts (`spec.md`, `plan.md`, `tasks.md`) through a dedicated testing lens. This command identifies vague acceptance criteria, missing coverage strategy, undefined contract surfaces, and infeasible fixture requirements — issues that cause rework if discovered only during implementation. This command MUST run only after `/speckit.tasks` has successfully produced a complete `tasks.md`.
 
+<protect>
 ## Operating Constraints
 
 **STRICTLY READ-ONLY**: Do **not** modify any files. Output a structured testability analysis report. Offer an optional remediation plan (user must explicitly approve before any follow-up editing commands would be invoked manually).
 
 **Constitution Authority**: The project constitution (`.specify/memory/constitution.md`) is **non-negotiable** within this analysis scope. Constitution Principle IV (Testability) violations are automatically CRITICAL. Missing coverage strategy is CRITICAL. These require adjustment of the spec, plan, or tasks — not dilution of the principle.
+</protect>
 
+<protect>
 ## Execution Steps
 
 ### 1. Initialize Analysis Context
@@ -131,6 +134,7 @@ Ask the user: "Would you like me to suggest concrete remediation edits for the t
 - **Prioritize Principle IV violations** (these are always CRITICAL)
 - **Missing coverage strategy is CRITICAL** — not HIGH, not MEDIUM
 - **Report zero issues gracefully** (emit success report with testability statistics)
+</protect>
 
 ## Context
 

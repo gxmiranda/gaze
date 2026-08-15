@@ -655,6 +655,87 @@ func TestInsertMarkerAfterFrontmatter(t *testing.T) {
 	}
 }
 
+// TestProtectTagPlacement verifies that embedded command files
+// contain correctly placed <protect> tags for DCP context
+// preservation. Asserts tag count per file, balanced pairs, no
+// tags in YAML frontmatter, no nesting, and own-line placement.
+func TestProtectTagPlacement(t *testing.T) {
+	cases := []struct {
+		file          string
+		expectedPairs int
+	}{
+		{"commands/gaze-fix.md", 3},
+		{"commands/speckit.testreview.md", 2},
+		{"commands/gaze.md", 1},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.file, func(t *testing.T) {
+			content, err := assetContent(tc.file)
+			if err != nil {
+				t.Fatalf("reading embedded asset %s: %v", tc.file, err)
+			}
+			s := string(content)
+			lines := strings.Split(s, "\n")
+
+			// 1. Correct tag count.
+			openCount := strings.Count(s, "<protect>")
+			closeCount := strings.Count(s, "</protect>")
+			if openCount != tc.expectedPairs {
+				t.Errorf("expected %d <protect> tags, got %d", tc.expectedPairs, openCount)
+			}
+
+			// 2. Balanced pairs.
+			if openCount != closeCount {
+				t.Errorf("unbalanced tags: %d <protect> vs %d </protect>", openCount, closeCount)
+			}
+
+			// 3. No tags within YAML frontmatter.
+			if strings.HasPrefix(s, "---\n") {
+				closingIdx := strings.Index(s[4:], "\n---\n")
+				if closingIdx >= 0 {
+					frontmatter := s[:closingIdx+4+len("\n---\n")]
+					if strings.Contains(frontmatter, "<protect>") || strings.Contains(frontmatter, "</protect>") {
+						t.Errorf("protect tag found inside YAML frontmatter")
+					}
+				}
+			}
+
+			// 4. No nested tags.
+			depth := 0
+			for _, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "<protect>" {
+					depth++
+					if depth > 1 {
+						t.Errorf("nested <protect> tag detected (depth %d)", depth)
+					}
+				}
+				if trimmed == "</protect>" {
+					depth--
+					if depth < 0 {
+						t.Errorf("</protect> without matching <protect>")
+					}
+				}
+			}
+			if depth != 0 {
+				t.Errorf("unclosed <protect> tags: final depth %d", depth)
+			}
+
+			// 5. Tags appear on their own line.
+			for i, line := range lines {
+				trimmed := strings.TrimSpace(line)
+				if strings.Contains(line, "<protect>") && trimmed != "<protect>" {
+					t.Errorf("line %d: <protect> tag not on its own line: %q", i+1, line)
+				}
+				if strings.Contains(line, "</protect>") && trimmed != "</protect>" {
+					t.Errorf("line %d: </protect> tag not on its own line: %q", i+1, line)
+				}
+			}
+		})
+	}
+}
+
 // findProjectRoot walks up the directory tree from the current
 // working directory to find the project root (directory containing
 // go.mod).

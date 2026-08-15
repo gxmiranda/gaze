@@ -38,6 +38,7 @@ Delegates to the `gaze-reporter` agent which runs the appropriate
 /gaze                           # Full report for ./... (default)
 ```
 
+<protect>
 ## Instructions
 
 Pass `$ARGUMENTS` to the `gaze-reporter` agent. The agent handles
@@ -46,3 +47,4 @@ formatting.
 
 If no arguments are provided, the agent defaults to full mode with
 the package pattern `./...`.
+</protect>
