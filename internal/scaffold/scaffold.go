@@ -84,7 +84,8 @@ func isToolOwned(relPath string) bool {
 }
 
 // versionMarker returns the version marker comment to embed in
-// each scaffolded file.
+// scaffolded Markdown files. Non-Markdown files skip the marker
+// (see processAssetFile).
 func versionMarker(version string) string {
 	if version == "" {
 		version = "dev"
@@ -134,25 +135,6 @@ func insertMarkerAfterFrontmatter(content []byte, marker string) []byte {
 	return out
 }
 
-// Run scaffolds OpenCode agent, command, and reference files into
-// the target directory. It creates .opencode/agents/,
-// .opencode/commands/, and .opencode/references/ subdirectories
-// and writes the embedded quality-reporting files.
-//
-// Each file is prepended with a version marker comment:
-//
-//	<!-- scaffolded by gaze vX.Y.Z -->
-//
-// Files are classified as user-owned or tool-owned via
-// isToolOwned(). If a user-owned file already exists
-// and opts.Force is false, the file is skipped. Tool-owned files
-// use overwrite-on-diff: they are replaced when their content
-// differs from the embedded version, even without --force. If
-// opts.Force is true, all files are overwritten regardless of
-// ownership.
-//
-// Run returns a Result summarizing what was created, skipped,
-// overwritten, or updated.
 // applyDefaults sets zero-valued Options fields to their defaults.
 func applyDefaults(opts *Options) error {
 	if opts.TargetDir == "" {
@@ -209,8 +191,9 @@ func writeNewFile(outPath string, content []byte, exists bool, displayPath strin
 }
 
 // processAssetFile handles a single embedded asset: checks existence,
-// reads content, inserts the version marker, and writes or skips
-// based on force/tool-ownership semantics. Returns the action taken
+// reads content, inserts the version marker for Markdown files (non-
+// Markdown files skip the marker), and writes or skips based on
+// force/tool-ownership semantics. Returns the action taken
 // ("created", "overwritten", "updated", "skipped") or an error.
 func processAssetFile(embeddedPath, relPath string, opts Options, marker string) (string, error) {
 	outPath := filepath.Join(opts.TargetDir, ".opencode", relPath)
@@ -239,14 +222,17 @@ func processAssetFile(embeddedPath, relPath string, opts Options, marker string)
 	return writeNewFile(outPath, out, exists, displayPath)
 }
 
-// Run scaffolds OpenCode agent, command, and reference files into
-// the target directory. It creates .opencode/agents/,
+// Run scaffolds OpenCode agent, command, reference, and configuration
+// files into the target directory. It creates .opencode/agents/,
 // .opencode/commands/, and .opencode/references/ subdirectories
-// and writes the embedded quality-reporting files.
+// and writes the embedded quality-reporting files and DCP config.
 //
-// Each file is prepended with a version marker comment:
+// Markdown files are prepended with a version marker comment:
 //
 //	<!-- scaffolded by gaze vX.Y.Z -->
+//
+// Non-Markdown files (e.g., dcp.jsonc) skip the marker because the
+// HTML comment syntax is invalid in those formats.
 //
 // Files are classified as user-owned or tool-owned via
 // isToolOwned(). If a user-owned file already exists
