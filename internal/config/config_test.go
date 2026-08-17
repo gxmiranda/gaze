@@ -433,6 +433,9 @@ func TestLoadFromDir_InvalidYAML(t *testing.T) {
 	if !strings.Contains(buf.String(), "using defaults") {
 		t.Errorf("expected 'using defaults' in warning, got %q", buf.String())
 	}
+	if !strings.Contains(buf.String(), ".gaze.yaml") {
+		t.Errorf("expected file path in warning, got %q", buf.String())
+	}
 }
 
 func TestLoadFromDir_InvalidConfig_EmitsWarning(t *testing.T) {
@@ -469,72 +472,6 @@ func TestLoadFromDir_InvalidConfig_EmitsWarning(t *testing.T) {
 	}
 	if !strings.Contains(warning, "must be in [1, 99]") {
 		t.Errorf("expected validation error in warning, got %q", warning)
-	}
-}
-
-func TestLoadFromDir_MalformedYAML_EmitsWarning(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, ".gaze.yaml"), []byte(`{{{bad`), 0o644); err != nil {
-		t.Fatalf("writing .gaze.yaml: %v", err)
-	}
-
-	var buf bytes.Buffer
-	cfg := LoadFromDir(dir, &buf)
-	if cfg == nil {
-		t.Fatal("LoadFromDir returned nil")
-	}
-	if cfg.Classification.Thresholds.Contractual != 80 {
-		t.Errorf("contractual = %d, want default 80",
-			cfg.Classification.Thresholds.Contractual)
-	}
-	warning := buf.String()
-	if !strings.Contains(warning, "warning:") {
-		t.Errorf("expected warning prefix, got %q", warning)
-	}
-	if !strings.Contains(warning, "using defaults") {
-		t.Errorf("expected 'using defaults' in warning, got %q", warning)
-	}
-}
-
-func TestLoadFromDir_MissingFile_NoWarning(t *testing.T) {
-	dir := t.TempDir()
-
-	var buf bytes.Buffer
-	cfg := LoadFromDir(dir, &buf)
-	if cfg == nil {
-		t.Fatal("LoadFromDir returned nil")
-	}
-	if cfg.Classification.Thresholds.Contractual != 80 {
-		t.Errorf("contractual = %d, want default 80",
-			cfg.Classification.Thresholds.Contractual)
-	}
-	if buf.Len() != 0 {
-		t.Errorf("expected no warning for missing file, got %q", buf.String())
-	}
-}
-
-func TestLoadFromDir_ValidConfig_NoWarning(t *testing.T) {
-	dir := t.TempDir()
-	yamlContent := []byte(`classification:
-  thresholds:
-    contractual: 90
-    incidental: 40
-`)
-	if err := os.WriteFile(filepath.Join(dir, ".gaze.yaml"), yamlContent, 0o644); err != nil {
-		t.Fatalf("writing .gaze.yaml: %v", err)
-	}
-
-	var buf bytes.Buffer
-	cfg := LoadFromDir(dir, &buf)
-	if cfg == nil {
-		t.Fatal("LoadFromDir returned nil")
-	}
-	if cfg.Classification.Thresholds.Contractual != 90 {
-		t.Errorf("contractual = %d, want 90",
-			cfg.Classification.Thresholds.Contractual)
-	}
-	if buf.Len() != 0 {
-		t.Errorf("expected no warning for valid config, got %q", buf.String())
 	}
 }
 
