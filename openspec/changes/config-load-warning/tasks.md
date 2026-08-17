@@ -35,3 +35,4 @@
 - [x] 4.4 Constitution alignment verification: Confirm Principle II (no silent assumptions — warning makes fallback explicit), Principle III (actionable output — warning includes file path and error), Principle IV (testability — all warnings captured via `io.Writer`, no `os.Stderr`).
 
 <!-- spec-review: passed -->
+<!-- code-review: passed -->
