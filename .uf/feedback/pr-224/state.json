@@ -1,0 +1,27 @@
+{
+  "pr_number": 224,
+  "last_fetched": "2026-08-17T17:00:00Z",
+  "items": [
+    {
+      "id": "review-4952791462",
+      "type": "body-only-review",
+      "reviewer": "yvonnedevlinrh",
+      "authority": "maintainer",
+      "review_id": 4952791462,
+      "commit_id": "f9e9622",
+      "classification": "data-driven",
+      "tier": 1,
+      "evidence": ["go.md CS-004: GoDoc on all exported functions", "AP-005: file ownership model", "AP-006: version markers in Markdown files"],
+      "recommendation": "accept",
+      "suggested_approach": "GoDoc fix already applied in bc95633. Restore: dcp.jsonc in isToolOwned, non-Markdown marker skip in processAssetFile, dcp.jsonc embedded asset, test expectations (9 files, marker skip assertions).",
+      "conflict_flag": false,
+      "thread_id": null,
+      "inline_comment_id": null,
+      "resolved_on_github": false,
+      "status": "comment-posted",
+      "decision": "accept",
+      "commit_sha": "690bcfc",
+      "comment_id": 5318339227
+    }
+  ]
+}
