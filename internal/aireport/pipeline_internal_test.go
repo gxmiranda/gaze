@@ -28,7 +28,7 @@ func fakeSteps() pipelineStepFuncs {
 				AvgContractCoverage: intPtr(85),
 			}, nil
 		},
-		classifyStep: func(_ []string, _ string, _ ...qualityPipelineDeps) (*classifyStepResult, error) {
+		classifyStep: func(_ []string, _ string, _ io.Writer, _ ...qualityPipelineDeps) (*classifyStepResult, error) {
 			return &classifyStepResult{
 				JSON:        json.RawMessage(`{"classify":"ok"}`),
 				Contractual: 10,
@@ -36,7 +36,7 @@ func fakeSteps() pipelineStepFuncs {
 				Incidental:  1,
 			}, nil
 		},
-		docscanStep: func(_ string) (json.RawMessage, error) {
+		docscanStep: func(_ string, _ io.Writer) (json.RawMessage, error) {
 			return json.RawMessage(`{"docscan":"ok"}`), nil
 		},
 	}
@@ -192,7 +192,7 @@ func TestRunProductionPipeline_QualityStepFails(t *testing.T) {
 func TestRunProductionPipeline_ClassifyStepFails(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
-	steps.classifyStep = func(_ []string, _ string, _ ...qualityPipelineDeps) (*classifyStepResult, error) {
+	steps.classifyStep = func(_ []string, _ string, _ io.Writer, _ ...qualityPipelineDeps) (*classifyStepResult, error) {
 		return nil, fmt.Errorf("classify failed")
 	}
 
@@ -218,7 +218,7 @@ func TestRunProductionPipeline_ClassifyStepFails(t *testing.T) {
 func TestRunProductionPipeline_DocscanStepFails(t *testing.T) {
 	var stderr bytes.Buffer
 	steps := fakeSteps()
-	steps.docscanStep = func(_ string) (json.RawMessage, error) {
+	steps.docscanStep = func(_ string, _ io.Writer) (json.RawMessage, error) {
 		return nil, fmt.Errorf("docscan failed")
 	}
 

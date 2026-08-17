@@ -39,7 +39,7 @@ type qualityPipelineDeps struct {
 	loadTestPkg         func(string) (*packages.Package, error)
 	assess              func([]taxonomy.AnalysisResult, *packages.Package, quality.Options) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error)
 	resolveModulePkgs   func(string) []*packages.Package
-	loadConfig          func(string) *config.GazeConfig
+	loadConfig          func(string, io.Writer) *config.GazeConfig
 }
 
 // resolveQualityDeps resolves nil fields to their production defaults.
@@ -159,7 +159,7 @@ func runQualityStep(patterns []string, moduleDir string, stderr io.Writer, deps 
 		return nil, fmt.Errorf("no packages matched patterns %v", patterns)
 	}
 
-	gazeConfig := d.loadConfig(moduleDir)
+	gazeConfig := d.loadConfig(moduleDir, stderr)
 
 	// Hoist LoadModule out of the per-package loop — O(1) instead of O(n).
 	modPkgs := d.resolveModulePkgs(moduleDir)
@@ -275,7 +275,7 @@ type classifyStepResult struct {
 
 // runClassifyStep runs classification on all matched packages and returns the JSON output
 // alongside typed classification label counts.
-func runClassifyStep(patterns []string, moduleDir string, deps ...qualityPipelineDeps) (*classifyStepResult, error) {
+func runClassifyStep(patterns []string, moduleDir string, stderr io.Writer, deps ...qualityPipelineDeps) (*classifyStepResult, error) {
 	d := resolveQualityDeps(deps)
 
 	// Use the first resolved package path for analysis + classify.
@@ -290,7 +290,7 @@ func runClassifyStep(patterns []string, moduleDir string, deps ...qualityPipelin
 	// Hoist LoadModule out of the per-package loop — O(1) instead of O(n).
 	modPkgs := d.resolveModulePkgs(moduleDir)
 
-	gazeConfig := d.loadConfig(moduleDir)
+	gazeConfig := d.loadConfig(moduleDir, stderr)
 	var allResults []taxonomy.AnalysisResult
 
 	for _, pkgPath := range pkgPaths {
@@ -323,8 +323,8 @@ func runClassifyStep(patterns []string, moduleDir string, deps ...qualityPipelin
 }
 
 // runDocscanStep runs the documentation scanner and returns the JSON output.
-func runDocscanStep(moduleDir string) (json.RawMessage, error) {
-	cfg := config.LoadFromDir(moduleDir)
+func runDocscanStep(moduleDir string, stderr io.Writer) (json.RawMessage, error) {
+	cfg := config.LoadFromDir(moduleDir, stderr)
 	scanOpts := docscan.ScanOptions{Config: cfg}
 
 	docs, err := docscan.Scan(moduleDir, scanOpts)

@@ -246,8 +246,8 @@ func errString(err error) *string {
 type pipelineStepFuncs struct {
 	crapStep     func([]string, string, string, io.Writer, crap.ContractCoverageProvider, bool) (*crapStepResult, error)
 	qualityStep  func([]string, string, io.Writer, ...qualityPipelineDeps) (*qualityStepResult, error)
-	classifyStep func([]string, string, ...qualityPipelineDeps) (*classifyStepResult, error)
-	docscanStep  func(string) (json.RawMessage, error)
+	classifyStep func([]string, string, io.Writer, ...qualityPipelineDeps) (*classifyStepResult, error)
+	docscanStep  func(string, io.Writer) (json.RawMessage, error)
 }
 
 // runProductionPipeline runs the four-step analysis pipeline and returns
@@ -320,7 +320,7 @@ func runProductionPipeline(patterns []string, moduleDir string, coverProfile str
 
 	// Step 3: Classification analysis.
 	_, _ = fmt.Fprintln(stderr, "Analyzing packages... (Classification)")
-	if classifyRes, err := steps.classifyStep(patterns, moduleDir); err != nil {
+	if classifyRes, err := steps.classifyStep(patterns, moduleDir, stderr); err != nil {
 		payload.Errors.Classify = errString(err)
 	} else {
 		payload.Classify = classifyRes.JSON
@@ -331,7 +331,7 @@ func runProductionPipeline(patterns []string, moduleDir string, coverProfile str
 
 	// Step 4: Documentation scan.
 	_, _ = fmt.Fprintln(stderr, "Scanning documentation...")
-	if docscanJSON, err := steps.docscanStep(moduleDir); err != nil {
+	if docscanJSON, err := steps.docscanStep(moduleDir, stderr); err != nil {
 		payload.Errors.Docscan = errString(err)
 	} else {
 		payload.Docscan = docscanJSON

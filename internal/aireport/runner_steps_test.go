@@ -51,7 +51,7 @@ func TestRunDocscanStep_RealModuleDir(t *testing.T) {
 		t.Skip("skipping: runs real docscan pipeline")
 	}
 	modRoot := findModuleRoot(t)
-	raw, err := runDocscanStep(modRoot)
+	raw, err := runDocscanStep(modRoot, io.Discard)
 	if err != nil {
 		t.Fatalf("runDocscanStep: %v", err)
 	}
@@ -189,7 +189,7 @@ func fakeDepsSuccess() qualityPipelineDeps {
 		resolveModulePkgs: func(_ string) []*packages.Package {
 			return []*packages.Package{{Name: "fake"}}
 		},
-		loadConfig: func(_ string) *config.GazeConfig {
+		loadConfig: func(_ string, _ io.Writer) *config.GazeConfig {
 			return config.DefaultConfig()
 		},
 	}
@@ -461,7 +461,7 @@ func TestRunClassifyStep_DI_Success(t *testing.T) {
 	deps.classifyResults = func(results []taxonomy.AnalysisResult, _ string, _ *config.GazeConfig, _ []*packages.Package) ([]taxonomy.AnalysisResult, error) {
 		return results, nil // passthrough — labels already set
 	}
-	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", io.Discard, deps)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -484,7 +484,7 @@ func TestRunClassifyStep_DI_ResolveError(t *testing.T) {
 	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
 		return nil, fmt.Errorf("resolve failed")
 	}
-	_, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	_, err := runClassifyStep([]string{"./..."}, "/tmp", io.Discard, deps)
 	if err == nil {
 		t.Fatal("expected error on resolve failure")
 	}
@@ -498,7 +498,7 @@ func TestRunClassifyStep_DI_ResolveEmpty(t *testing.T) {
 	deps.resolvePackagePaths = func(_ []string, _ string) ([]string, error) {
 		return []string{}, nil
 	}
-	_, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	_, err := runClassifyStep([]string{"./..."}, "/tmp", io.Discard, deps)
 	if err == nil {
 		t.Fatal("expected error on empty resolve result")
 	}
@@ -521,7 +521,7 @@ func TestRunClassifyStep_DI_AnalysisErrorSkip(t *testing.T) {
 		}
 		return syntheticAnalysisResult(pattern, "Bar", &contractual), nil
 	}
-	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", io.Discard, deps)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -546,7 +546,7 @@ func TestRunClassifyStep_DI_EmptyResultsSkip(t *testing.T) {
 		}
 		return syntheticAnalysisResult(pattern, "Baz", &contractual), nil
 	}
-	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", io.Discard, deps)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -570,7 +570,7 @@ func TestRunClassifyStep_DI_ClassifyErrorSkip(t *testing.T) {
 		}
 		return results, nil
 	}
-	result, err := runClassifyStep([]string{"./..."}, "/tmp", deps)
+	result, err := runClassifyStep([]string{"./..."}, "/tmp", io.Discard, deps)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

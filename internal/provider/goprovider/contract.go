@@ -85,7 +85,7 @@ func (p *GoContractCoverageProvider) Build(
 // loading, and side effect analysis.
 type buildContractCoverageFuncDeps struct {
 	resolvePackagePaths func([]string, string, io.Writer) ([]string, error)
-	loadConfig          func(string) *config.GazeConfig
+	loadConfig          func(string, io.Writer) *config.GazeConfig
 	buildEffectsSetFn   func([]string, func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool
 	buildCoverageMapFn  func([]string, string, *config.GazeConfig, io.Writer, ...contractCoverageDeps) (map[string]crap.ContractCoverageInfo, []string)
 }
@@ -150,7 +150,7 @@ func buildContractCoverageFuncImpl(
 	}
 
 	// Load config once for all packages.
-	gazeConfig := loadCfg(moduleDir)
+	gazeConfig := loadCfg(moduleDir, stderr)
 
 	// Build effects set: functions with >0 detected side effects,
 	// regardless of whether they have test coverage. Used to

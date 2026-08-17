@@ -561,9 +561,9 @@ func runCrap(p crapParams) error {
 
 	// Resolve baseline path for comparison (D4).
 	var comparisonResult *crap.ComparisonResult
-	baselinePath, baselineExplicit := resolveBaselinePath(p.baselinePath, p.moduleDir)
+	baselinePath, baselineExplicit := resolveBaselinePath(p.baselinePath, p.moduleDir, p.stderr)
 	if baselinePath != "" {
-		cr, baselineErr := loadAndCompare(baselinePath, baselineExplicit, rpt, p.moduleDir)
+		cr, baselineErr := loadAndCompare(baselinePath, baselineExplicit, rpt, p.moduleDir, p.stderr)
 		if baselineErr != nil {
 			return baselineErr
 		}
@@ -650,7 +650,7 @@ func initExternalSession(
 	analyzerFlag, languageFlag, moduleDir string,
 	patterns []string, stderr io.Writer,
 ) (*adapter.Session, *adapter.Providers, error) {
-	cfg := config.LoadFromDir(moduleDir)
+	cfg := config.LoadFromDir(moduleDir, stderr)
 	binary, args, err := adapter.Discover(analyzerFlag, languageFlag, cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("discovering analyzer: %w", err)
@@ -717,13 +717,13 @@ func writeCrapComparisonReport(w io.Writer, format string, result *crap.Comparis
 // D4 detection order: explicit flag → config file → default path.
 // Returns the path and whether it was explicitly specified (via
 // --baseline flag). Empty path means no baseline available.
-func resolveBaselinePath(flagPath, moduleDir string) (string, bool) {
+func resolveBaselinePath(flagPath, moduleDir string, stderr io.Writer) (string, bool) {
 	if flagPath != "" {
 		return flagPath, true
 	}
 
 	// Config file baseline.file setting (non-default only).
-	cfg := config.LoadFromDir(moduleDir)
+	cfg := config.LoadFromDir(moduleDir, stderr)
 	if cfg.Baseline.File != "" && cfg.Baseline.File != ".gaze/baseline.json" {
 		return resolveConfigBaselinePath(cfg.Baseline.File, moduleDir), false
 	}
@@ -765,6 +765,7 @@ func loadAndCompare(
 	baselineExplicit bool,
 	current *crap.Report,
 	moduleDir string,
+	stderr io.Writer,
 ) (*crap.ComparisonResult, error) {
 	baseline, err := openAndLoadBaseline(baselinePath)
 	if err != nil {
@@ -774,7 +775,7 @@ func loadAndCompare(
 		return nil, nil
 	}
 
-	cfg := config.LoadFromDir(moduleDir)
+	cfg := config.LoadFromDir(moduleDir, stderr)
 	opts := crap.CompareOptions{
 		Epsilon:                      cfg.Baseline.Epsilon,
 		NewFunctionThreshold:         cfg.Baseline.NewFunctionThreshold,

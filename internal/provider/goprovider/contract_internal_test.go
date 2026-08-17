@@ -647,7 +647,7 @@ func successBCCFDeps() buildContractCoverageFuncDeps {
 		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
 			return []string{"example.com/pkg"}, nil
 		},
-		loadConfig: func(_ string) *config.GazeConfig {
+		loadConfig: func(_ string, _ io.Writer) *config.GazeConfig {
 			return config.DefaultConfig()
 		},
 		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
@@ -705,7 +705,7 @@ func TestBuildContractCoverageFuncImpl_BothMapsEmpty(t *testing.T) {
 		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
 			return []string{"example.com/pkg"}, nil
 		},
-		loadConfig: func(_ string) *config.GazeConfig {
+		loadConfig: func(_ string, _ io.Writer) *config.GazeConfig {
 			return config.DefaultConfig()
 		},
 		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
@@ -750,7 +750,7 @@ func TestBuildContractCoverageFuncImpl_ClosureNoTestCoverage(t *testing.T) {
 		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
 			return []string{"example.com/pkg"}, nil
 		},
-		loadConfig: func(_ string) *config.GazeConfig {
+		loadConfig: func(_ string, _ io.Writer) *config.GazeConfig {
 			return config.DefaultConfig()
 		},
 		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
@@ -803,7 +803,7 @@ func TestBuildContractCoverageFuncImpl_HappyPath(t *testing.T) {
 		resolvePackagePaths: func(_ []string, _ string, _ io.Writer) ([]string, error) {
 			return []string{"example.com/pkg"}, nil
 		},
-		loadConfig: func(_ string) *config.GazeConfig {
+		loadConfig: func(_ string, _ io.Writer) *config.GazeConfig {
 			return config.DefaultConfig()
 		},
 		buildEffectsSetFn: func(_ []string, _ func(string, analysis.Options) ([]taxonomy.AnalysisResult, error)) map[string]bool {
