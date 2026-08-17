@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// TestRun_CreatesFiles verifies that gaze init creates exactly 8
-// files (agents, commands, and reference files) in the correct
-// directories when run in an empty project.
+// TestRun_CreatesFiles verifies that gaze init creates exactly 9
+// files (agents, commands, reference files, and DCP config) in the
+// correct directories when run in an empty project.
 func TestRun_CreatesFiles(t *testing.T) {
 	dir := t.TempDir()
 
@@ -31,8 +31,8 @@ func TestRun_CreatesFiles(t *testing.T) {
 		t.Fatalf("Run() returned error: %v", err)
 	}
 
-	if len(result.Created) != 8 {
-		t.Errorf("expected 8 created files, got %d: %v", len(result.Created), result.Created)
+	if len(result.Created) != 9 {
+		t.Errorf("expected 9 created files, got %d: %v", len(result.Created), result.Created)
 	}
 	if len(result.Skipped) != 0 {
 		t.Errorf("expected 0 skipped files, got %d: %v", len(result.Skipped), result.Skipped)
@@ -44,7 +44,7 @@ func TestRun_CreatesFiles(t *testing.T) {
 		t.Errorf("expected 0 updated files, got %d: %v", len(result.Updated), result.Updated)
 	}
 
-	// Verify all 6 expected files exist on disk.
+	// Verify all expected files exist on disk.
 	expected := []string{
 		".opencode/agents/gaze-reporter.md",
 		".opencode/agents/reviewer-testing.md",
@@ -52,6 +52,7 @@ func TestRun_CreatesFiles(t *testing.T) {
 		".opencode/commands/speckit.testreview.md",
 		".opencode/references/doc-scoring-model.md",
 		".opencode/references/example-report.md",
+		".opencode/dcp.jsonc",
 	}
 	for _, rel := range expected {
 		path := filepath.Join(dir, rel)
@@ -92,8 +93,8 @@ func TestRun_SkipsExisting(t *testing.T) {
 	}
 
 	// Second run without --force: tool-owned files have identical
-	// content, so all 6 files land in Skipped (3 user-owned +
-	// 3 tool-owned identical).
+	// content, so all 9 files land in Skipped (3 user-owned +
+	// 6 tool-owned identical).
 	var buf2 bytes.Buffer
 	result, err := Run(Options{
 		TargetDir: dir,
@@ -107,8 +108,8 @@ func TestRun_SkipsExisting(t *testing.T) {
 	if len(result.Created) != 0 {
 		t.Errorf("expected 0 created, got %d: %v", len(result.Created), result.Created)
 	}
-	if len(result.Skipped) != 8 {
-		t.Errorf("expected 8 skipped, got %d: %v", len(result.Skipped), result.Skipped)
+	if len(result.Skipped) != 9 {
+		t.Errorf("expected 9 skipped, got %d: %v", len(result.Skipped), result.Skipped)
 	}
 	if len(result.Overwritten) != 0 {
 		t.Errorf("expected 0 overwritten, got %d: %v", len(result.Overwritten), result.Overwritten)
@@ -165,8 +166,8 @@ func TestRun_ForceOverwrites(t *testing.T) {
 	if len(result.Skipped) != 0 {
 		t.Errorf("expected 0 skipped, got %d: %v", len(result.Skipped), result.Skipped)
 	}
-	if len(result.Overwritten) != 8 {
-		t.Errorf("expected 8 overwritten, got %d: %v", len(result.Overwritten), result.Overwritten)
+	if len(result.Overwritten) != 9 {
+		t.Errorf("expected 9 overwritten, got %d: %v", len(result.Overwritten), result.Overwritten)
 	}
 	if len(result.Updated) != 0 {
 		t.Errorf("expected 0 updated, got %d: %v", len(result.Updated), result.Updated)
@@ -214,7 +215,16 @@ func TestRun_VersionMarker(t *testing.T) {
 
 		s := string(content)
 
-		// Marker must be present in the file.
+		// Non-Markdown files skip the HTML marker (it would be
+		// invalid syntax in formats like JSONC).
+		if !strings.HasSuffix(relPath, ".md") {
+			if strings.Contains(s, expected) {
+				t.Errorf("file %s: non-Markdown file should NOT contain HTML marker", relPath)
+			}
+			continue
+		}
+
+		// Marker must be present in Markdown files.
 		if !strings.Contains(s, expected) {
 			t.Errorf("file %s: marker %q not found in content", relPath, expected)
 		}
@@ -236,7 +246,7 @@ func TestRun_VersionMarker(t *testing.T) {
 					relPath, markerIdx, frontmatterEnd)
 			}
 		}
-		// Non-frontmatter files: marker presence already verified above.
+		// Non-frontmatter Markdown files: marker presence already verified above.
 	}
 }
 
@@ -273,6 +283,15 @@ func TestRun_VersionMarker_Dev(t *testing.T) {
 		}
 
 		s := string(content)
+
+		// Non-Markdown files skip the HTML marker.
+		if !strings.HasSuffix(relPath, ".md") {
+			if strings.Contains(s, expected) {
+				t.Errorf("file %s: non-Markdown file should NOT contain HTML marker", relPath)
+			}
+			continue
+		}
+
 		if !strings.Contains(s, expected) {
 			t.Errorf("file %s: marker %q not found in content", relPath, expected)
 		}
@@ -305,8 +324,8 @@ func TestRun_NoGoMod_PrintsWarning(t *testing.T) {
 	}
 
 	// Files should still be created.
-	if len(result.Created) != 8 {
-		t.Errorf("expected 8 created files, got %d", len(result.Created))
+	if len(result.Created) != 9 {
+		t.Errorf("expected 9 created files, got %d", len(result.Created))
 	}
 
 	// Warning should be printed.
@@ -333,8 +352,8 @@ func TestEmbeddedAssetsMatchSource(t *testing.T) {
 		t.Fatalf("assetPaths() returned error: %v", err)
 	}
 
-	if len(paths) != 8 {
-		t.Fatalf("expected 8 embedded assets, got %d: %v", len(paths), paths)
+	if len(paths) != 9 {
+		t.Fatalf("expected 9 embedded assets, got %d: %v", len(paths), paths)
 	}
 
 	for _, relPath := range paths {
@@ -357,9 +376,9 @@ func TestEmbeddedAssetsMatchSource(t *testing.T) {
 	}
 }
 
-// TestAssetPaths_Returns8Files verifies the embedded asset manifest
-// contains exactly 8 files.
-func TestAssetPaths_Returns8Files(t *testing.T) {
+// TestAssetPaths_Returns9Files verifies the embedded asset manifest
+// contains exactly 9 files.
+func TestAssetPaths_Returns9Files(t *testing.T) {
 	paths, err := assetPaths()
 	if err != nil {
 		t.Fatalf("assetPaths() returned error: %v", err)
@@ -372,6 +391,7 @@ func TestAssetPaths_Returns8Files(t *testing.T) {
 		"commands/gaze-fix.md":            true,
 		"commands/gaze.md":                true,
 		"commands/speckit.testreview.md":  true,
+		"dcp.jsonc":                       true,
 		"references/doc-scoring-model.md": true,
 		"references/example-report.md":    true,
 	}
@@ -398,7 +418,7 @@ func TestRun_OverwriteOnDiff_ToolOwned(t *testing.T) {
 		t.Fatalf("creating go.mod: %v", err)
 	}
 
-	// First run: create all 8 files.
+	// First run: create all 9 files.
 	var buf1 bytes.Buffer
 	result1, err := Run(Options{
 		TargetDir: dir,
@@ -408,8 +428,8 @@ func TestRun_OverwriteOnDiff_ToolOwned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first Run() returned error: %v", err)
 	}
-	if len(result1.Created) != 8 {
-		t.Fatalf("expected 8 created files, got %d: %v", len(result1.Created), result1.Created)
+	if len(result1.Created) != 9 {
+		t.Fatalf("expected 9 created files, got %d: %v", len(result1.Created), result1.Created)
 	}
 
 	// Second run without --force: all files should be skipped
@@ -423,8 +443,8 @@ func TestRun_OverwriteOnDiff_ToolOwned(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second Run() returned error: %v", err)
 	}
-	if len(result2.Skipped) != 8 {
-		t.Errorf("expected 8 skipped, got %d: %v", len(result2.Skipped), result2.Skipped)
+	if len(result2.Skipped) != 9 {
+		t.Errorf("expected 9 skipped, got %d: %v", len(result2.Skipped), result2.Skipped)
 	}
 	if len(result2.Updated) != 0 {
 		t.Errorf("expected 0 updated, got %d: %v", len(result2.Updated), result2.Updated)
@@ -441,7 +461,7 @@ func TestRun_OverwriteOnDiff_ToolOwned(t *testing.T) {
 	}
 
 	// Third run without --force: the 2 modified tool-owned files
-	// should be overwritten (Updated), the other 3 tool-owned files
+	// should be overwritten (Updated), the other 4 tool-owned files
 	// skipped (identical), and 3 user-owned files skipped.
 	var buf3 bytes.Buffer
 	result3, err := Run(Options{
@@ -456,9 +476,9 @@ func TestRun_OverwriteOnDiff_ToolOwned(t *testing.T) {
 	if len(result3.Updated) != 2 {
 		t.Errorf("expected 2 updated, got %d: %v", len(result3.Updated), result3.Updated)
 	}
-	// 3 user-owned + 3 identical tool-owned = 6 skipped.
-	if len(result3.Skipped) != 6 {
-		t.Errorf("expected 6 skipped, got %d: %v", len(result3.Skipped), result3.Skipped)
+	// 3 user-owned + 4 identical tool-owned = 7 skipped.
+	if len(result3.Skipped) != 7 {
+		t.Errorf("expected 7 skipped, got %d: %v", len(result3.Skipped), result3.Skipped)
 	}
 	if len(result3.Created) != 0 {
 		t.Errorf("expected 0 created, got %d: %v", len(result3.Created), result3.Created)
@@ -544,9 +564,9 @@ func TestRun_OverwriteOnDiff_SkipsIdentical(t *testing.T) {
 		t.Errorf("expected 0 updated (identical content), got %d: %v", len(result.Updated), result.Updated)
 	}
 
-	// All 8 files should be skipped.
-	if len(result.Skipped) != 8 {
-		t.Errorf("expected 8 skipped, got %d: %v", len(result.Skipped), result.Skipped)
+	// All 9 files should be skipped.
+	if len(result.Skipped) != 9 {
+		t.Errorf("expected 9 skipped, got %d: %v", len(result.Skipped), result.Skipped)
 	}
 
 	// Verify tool-owned files are specifically in the skipped list.
@@ -579,6 +599,8 @@ func TestIsToolOwned(t *testing.T) {
 		// Tool-owned: explicit command files.
 		{"commands/speckit.testreview.md", true},
 		{"commands/gaze-fix.md", true},
+		// Tool-owned: DCP configuration.
+		{"dcp.jsonc", true},
 		// User-owned: agents.
 		{"agents/gaze-reporter.md", false},
 		{"agents/reviewer-testing.md", false},

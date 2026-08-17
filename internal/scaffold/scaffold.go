@@ -77,7 +77,8 @@ func isToolOwned(relPath string) bool {
 	switch relPath {
 	case "commands/speckit.testreview.md",
 		"agents/gaze-test-generator.md",
-		"commands/gaze-fix.md":
+		"commands/gaze-fix.md",
+		"dcp.jsonc":
 		return true
 	}
 	return false
@@ -210,7 +211,15 @@ func processAssetFile(embeddedPath, relPath string, opts Options, marker string)
 		return "", fmt.Errorf("reading embedded asset %s: %w", embeddedPath, err)
 	}
 
-	out := insertMarkerAfterFrontmatter(content, marker)
+	// Skip the HTML version marker for non-Markdown files.
+	// The marker (<!-- scaffolded by gaze vX.Y.Z -->) is an HTML
+	// comment that is invalid in formats like JSONC.
+	var out []byte
+	if strings.HasSuffix(relPath, ".md") {
+		out = insertMarkerAfterFrontmatter(content, marker)
+	} else {
+		out = content
+	}
 
 	if exists && !opts.Force {
 		if isToolOwned(relPath) {
