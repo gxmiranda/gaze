@@ -57,10 +57,11 @@ type ContractCoverageInfo struct {
 
 	// Reason explains why coverage is what it is. Empty string
 	// for normal coverage. Values:
-	//   "all_effects_ambiguous" — all effects classified ambiguous
-	//   "no_effects_detected"  — function has no side effects
-	//   "no_test_coverage"     — effects were detected but no test targets this function
-	//   "no_assertions_mapped" — effects exist but none mapped
+	//   "all_effects_ambiguous"    — all effects classified ambiguous
+	//   "all_effects_unclassified" — effects exist but none have classification data (external analyzer)
+	//   "no_effects_detected"     — function has no side effects
+	//   "no_test_coverage"        — effects were detected but no test targets this function
+	//   "no_assertions_mapped"    — effects exist but none mapped
 	Reason string
 
 	// MinConfidence is the lowest classification confidence across

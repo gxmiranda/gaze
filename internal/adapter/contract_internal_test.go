@@ -7,149 +7,145 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// confidenceRange tests
+// confidenceRange tests (table-driven)
 // ---------------------------------------------------------------------------
 
-func TestConfidenceRange_AllNilClassification(t *testing.T) {
-	effects := []taxonomy.SideEffect{
-		{Classification: nil},
-		{Classification: nil},
+func TestConfidenceRange(t *testing.T) {
+	tests := []struct {
+		name    string
+		effects []taxonomy.SideEffect
+		wantMin int
+		wantMax int
+		wantOK  bool
+	}{
+		{
+			name:    "empty slice",
+			effects: nil,
+			wantMin: 0, wantMax: 0, wantOK: false,
+		},
+		{
+			name: "all nil classification",
+			effects: []taxonomy.SideEffect{
+				{Classification: nil},
+				{Classification: nil},
+			},
+			wantMin: 0, wantMax: 0, wantOK: false,
+		},
+		{
+			name: "all classified",
+			effects: []taxonomy.SideEffect{
+				{Classification: &taxonomy.Classification{Confidence: 78}},
+				{Classification: &taxonomy.Classification{Confidence: 85}},
+				{Classification: &taxonomy.Classification{Confidence: 79}},
+			},
+			wantMin: 78, wantMax: 85, wantOK: true,
+		},
+		{
+			name: "mixed nil and classified",
+			effects: []taxonomy.SideEffect{
+				{Classification: nil},
+				{Classification: &taxonomy.Classification{Confidence: 60}},
+				{Classification: nil},
+				{Classification: &taxonomy.Classification{Confidence: 72}},
+			},
+			wantMin: 60, wantMax: 72, wantOK: true,
+		},
+		{
+			name: "single effect",
+			effects: []taxonomy.SideEffect{
+				{Classification: &taxonomy.Classification{Confidence: 50}},
+			},
+			wantMin: 50, wantMax: 50, wantOK: true,
+		},
 	}
-	minC, maxC, found := confidenceRange(effects)
-	if found {
-		t.Errorf("found = true, want false")
-	}
-	if minC != 0 {
-		t.Errorf("minConf = %d, want 0", minC)
-	}
-	if maxC != 0 {
-		t.Errorf("maxConf = %d, want 0", maxC)
-	}
-}
-
-func TestConfidenceRange_AllClassified(t *testing.T) {
-	effects := []taxonomy.SideEffect{
-		{Classification: &taxonomy.Classification{Confidence: 78}},
-		{Classification: &taxonomy.Classification{Confidence: 85}},
-		{Classification: &taxonomy.Classification{Confidence: 79}},
-	}
-	minC, maxC, found := confidenceRange(effects)
-	if !found {
-		t.Errorf("found = false, want true")
-	}
-	if minC != 78 {
-		t.Errorf("minConf = %d, want 78", minC)
-	}
-	if maxC != 85 {
-		t.Errorf("maxConf = %d, want 85", maxC)
-	}
-}
-
-func TestConfidenceRange_MixedNilAndClassified(t *testing.T) {
-	effects := []taxonomy.SideEffect{
-		{Classification: nil},
-		{Classification: &taxonomy.Classification{Confidence: 60}},
-		{Classification: nil},
-		{Classification: &taxonomy.Classification{Confidence: 72}},
-	}
-	minC, maxC, found := confidenceRange(effects)
-	if !found {
-		t.Errorf("found = false, want true")
-	}
-	if minC != 60 {
-		t.Errorf("minConf = %d, want 60", minC)
-	}
-	if maxC != 72 {
-		t.Errorf("maxConf = %d, want 72", maxC)
-	}
-}
-
-func TestConfidenceRange_SingleEffect(t *testing.T) {
-	effects := []taxonomy.SideEffect{
-		{Classification: &taxonomy.Classification{Confidence: 50}},
-	}
-	minC, maxC, found := confidenceRange(effects)
-	if !found {
-		t.Errorf("found = false, want true")
-	}
-	if minC != 50 {
-		t.Errorf("minConf = %d, want 50", minC)
-	}
-	if maxC != 50 {
-		t.Errorf("maxConf = %d, want 50", maxC)
-	}
-}
-
-func TestConfidenceRange_EmptySlice(t *testing.T) {
-	minC, maxC, found := confidenceRange(nil)
-	if found {
-		t.Errorf("found = true, want false")
-	}
-	if minC != 0 {
-		t.Errorf("minConf = %d, want 0", minC)
-	}
-	if maxC != 0 {
-		t.Errorf("maxConf = %d, want 0", maxC)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			minC, maxC, found := confidenceRange(tt.effects)
+			if found != tt.wantOK {
+				t.Errorf("found = %v, want %v", found, tt.wantOK)
+			}
+			if minC != tt.wantMin {
+				t.Errorf("minConf = %d, want %d", minC, tt.wantMin)
+			}
+			if maxC != tt.wantMax {
+				t.Errorf("maxConf = %d, want %d", maxC, tt.wantMax)
+			}
+		})
 	}
 }
 
 // ---------------------------------------------------------------------------
-// deriveCoverageReason tests
+// deriveCoverageReason tests (table-driven)
 // ---------------------------------------------------------------------------
 
-func TestDeriveCoverageReason_NoEffects(t *testing.T) {
-	reason, minC, maxC := deriveCoverageReason(nil, taxonomy.ContractCoverage{})
-	if reason != "no_effects_detected" {
-		t.Errorf("reason = %q, want %q", reason, "no_effects_detected")
+func TestDeriveCoverageReason(t *testing.T) {
+	tests := []struct {
+		name       string
+		effects    []taxonomy.SideEffect
+		cc         taxonomy.ContractCoverage
+		wantReason string
+		wantMin    int
+		wantMax    int
+	}{
+		{
+			name:       "no effects",
+			effects:    nil,
+			cc:         taxonomy.ContractCoverage{},
+			wantReason: "no_effects_detected",
+			wantMin:    0, wantMax: 0,
+		},
+		{
+			name: "all nil classification",
+			effects: []taxonomy.SideEffect{
+				{Classification: nil},
+				{Classification: nil},
+			},
+			cc:         taxonomy.ContractCoverage{TotalContractual: 0},
+			wantReason: "all_effects_unclassified",
+			wantMin:    0, wantMax: 0,
+		},
+		{
+			name: "all ambiguous (classified but below threshold)",
+			effects: []taxonomy.SideEffect{
+				{Classification: &taxonomy.Classification{Confidence: 78}},
+				{Classification: &taxonomy.Classification{Confidence: 79}},
+			},
+			cc:         taxonomy.ContractCoverage{TotalContractual: 0},
+			wantReason: "all_effects_ambiguous",
+			wantMin:    78, wantMax: 79,
+		},
+		{
+			name: "with contractual effects",
+			effects: []taxonomy.SideEffect{
+				{Classification: &taxonomy.Classification{Confidence: 90}},
+			},
+			cc:         taxonomy.ContractCoverage{TotalContractual: 1},
+			wantReason: "",
+			wantMin:    0, wantMax: 0,
+		},
+		{
+			name: "contractual > 0 with all nil classification",
+			effects: []taxonomy.SideEffect{
+				{Classification: nil},
+				{Classification: nil},
+			},
+			cc:         taxonomy.ContractCoverage{TotalContractual: 1},
+			wantReason: "",
+			wantMin:    0, wantMax: 0,
+		},
 	}
-	if minC != 0 || maxC != 0 {
-		t.Errorf("confidence = (%d, %d), want (0, 0)", minC, maxC)
-	}
-}
-
-func TestDeriveCoverageReason_AllNilClassification(t *testing.T) {
-	effects := []taxonomy.SideEffect{
-		{Classification: nil},
-		{Classification: nil},
-	}
-	cc := taxonomy.ContractCoverage{TotalContractual: 0}
-	reason, minC, maxC := deriveCoverageReason(effects, cc)
-	if reason != "no_effects_detected" {
-		t.Errorf("reason = %q, want %q", reason, "no_effects_detected")
-	}
-	if minC != 0 || maxC != 0 {
-		t.Errorf("confidence = (%d, %d), want (0, 0)", minC, maxC)
-	}
-}
-
-func TestDeriveCoverageReason_AllAmbiguous(t *testing.T) {
-	effects := []taxonomy.SideEffect{
-		{Classification: &taxonomy.Classification{Confidence: 78}},
-		{Classification: &taxonomy.Classification{Confidence: 79}},
-	}
-	cc := taxonomy.ContractCoverage{TotalContractual: 0}
-	reason, minC, maxC := deriveCoverageReason(effects, cc)
-	if reason != "all_effects_ambiguous" {
-		t.Errorf("reason = %q, want %q", reason, "all_effects_ambiguous")
-	}
-	if minC != 78 {
-		t.Errorf("minConf = %d, want 78", minC)
-	}
-	if maxC != 79 {
-		t.Errorf("maxConf = %d, want 79", maxC)
-	}
-}
-
-func TestDeriveCoverageReason_WithContractual(t *testing.T) {
-	effects := []taxonomy.SideEffect{
-		{Classification: &taxonomy.Classification{Confidence: 90}},
-	}
-	cc := taxonomy.ContractCoverage{TotalContractual: 1}
-	reason, minC, maxC := deriveCoverageReason(effects, cc)
-	if reason != "" {
-		t.Errorf("reason = %q, want empty string", reason)
-	}
-	if minC != 0 || maxC != 0 {
-		t.Errorf("confidence = (%d, %d), want (0, 0)", minC, maxC)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reason, minC, maxC := deriveCoverageReason(tt.effects, tt.cc)
+			if reason != tt.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tt.wantReason)
+			}
+			if minC != tt.wantMin {
+				t.Errorf("minConf = %d, want %d", minC, tt.wantMin)
+			}
+			if maxC != tt.wantMax {
+				t.Errorf("maxConf = %d, want %d", maxC, tt.wantMax)
+			}
+		})
 	}
 }

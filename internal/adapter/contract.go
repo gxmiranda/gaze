@@ -176,16 +176,24 @@ func buildContractLookup(
 
 // deriveCoverageReason determines the coverage reason and confidence
 // range from the computed contract coverage and raw effects. This
-// mirrors the diagnostic logic in the Go-native path
-// (internal/crap/contract.go) for output parity.
+// parallels the diagnostic logic in the Go-native path
+// (internal/provider/goprovider/contract.go, computeCoverageReason)
+// but operates on all side effects rather than the pre-filtered
+// AmbiguousEffects from the quality pipeline.
 func deriveCoverageReason(effects []taxonomy.SideEffect, cc taxonomy.ContractCoverage) (reason string, minConf, maxConf int) {
+	// Defensive guard: buildContractLookup only creates map entries
+	// for functions with len(SideEffects) > 0, so this branch is
+	// unreachable from the sole production caller. Kept for safety.
 	if len(effects) == 0 {
 		return "no_effects_detected", 0, 0
 	}
 	if cc.TotalContractual == 0 {
 		minC, maxC, found := confidenceRange(effects)
 		if !found {
-			return "no_effects_detected", 0, 0
+			// Effects exist but none have a Classification (e.g.,
+			// external analyzer with classify_signals: false).
+			// Distinct from "no_effects_detected" (len(effects)==0).
+			return "all_effects_unclassified", 0, 0
 		}
 		return "all_effects_ambiguous", minC, maxC
 	}
