@@ -148,7 +148,9 @@ func DefaultConfig() *GazeConfig {
 // looking for .gaze.yaml. This is a best-effort loader: if the config
 // file is missing, it returns DefaultConfig() with no warning.
 // If the file exists but is malformed or fails validation, it writes
-// a warning to stderr (if non-nil) and returns DefaultConfig().
+// a warning to stderr and returns DefaultConfig().
+//
+// If stderr is nil, warnings are silently discarded.
 // Use this when callers treat config as an optimization hint rather
 // than a hard requirement.
 func LoadFromDir(moduleDir string, stderr io.Writer) *GazeConfig {

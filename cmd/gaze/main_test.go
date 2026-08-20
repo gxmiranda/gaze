@@ -713,6 +713,59 @@ func TestLoadConfig_InvertedThresholdsRejected(t *testing.T) {
 	}
 }
 
+// TestResolveBaselinePath_PropagatesConfigWarning verifies that when
+// .gaze.yaml exists but contains an invalid value, resolveBaselinePath
+// writes a warning to the provided stderr writer.
+func TestResolveBaselinePath_PropagatesConfigWarning(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, ".gaze.yaml")
+	// contractual: 500 is out of [1, 99] range — triggers validation error.
+	content := []byte("classification:\n  thresholds:\n    contractual: 500\n")
+	if err := os.WriteFile(cfgPath, content, 0o600); err != nil {
+		t.Fatalf("writing temp config: %v", err)
+	}
+
+	var buf bytes.Buffer
+	path, explicit := resolveBaselinePath("", dir, &buf)
+
+	// Should fall through to default path check (no baseline.json exists).
+	if explicit {
+		t.Error("expected explicit=false for config-based resolution")
+	}
+	if path != "" {
+		t.Errorf("expected empty path (no baseline.json), got %q", path)
+	}
+
+	// Warning must be emitted to stderr.
+	warning := buf.String()
+	if !strings.Contains(warning, "warning:") {
+		t.Errorf("expected warning in stderr, got %q", warning)
+	}
+	if !strings.Contains(warning, ".gaze.yaml") {
+		t.Errorf("expected warning to mention .gaze.yaml, got %q", warning)
+	}
+}
+
+// TestResolveBaselinePath_NilStderr verifies that a nil stderr does not panic.
+func TestResolveBaselinePath_NilStderr(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, ".gaze.yaml")
+	// contractual: 500 is out of [1, 99] range — triggers validation error.
+	content := []byte("classification:\n  thresholds:\n    contractual: 500\n")
+	if err := os.WriteFile(cfgPath, content, 0o600); err != nil {
+		t.Fatalf("writing temp config: %v", err)
+	}
+
+	// Must not panic with nil stderr.
+	path, explicit := resolveBaselinePath("", dir, nil)
+	if explicit {
+		t.Error("expected explicit=false")
+	}
+	if path != "" {
+		t.Errorf("expected empty path, got %q", path)
+	}
+}
+
 func TestRunCrap_InvalidFormat(t *testing.T) {
 	err := runCrap(crapParams{
 		patterns: []string{"./..."},
