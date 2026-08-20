@@ -176,31 +176,48 @@ func buildContractLookup(
 
 // deriveCoverageReason determines the coverage reason and confidence
 // range from the computed contract coverage and raw effects. This
-// mirrors the diagnostic logic in the Go-native path
-// (internal/crap/contract.go) for output parity.
+// parallels the diagnostic logic in the Go-native path
+// (internal/provider/goprovider/contract.go, computeCoverageReason)
+// but operates on all side effects rather than the pre-filtered
+// AmbiguousEffects from the quality pipeline.
 func deriveCoverageReason(effects []taxonomy.SideEffect, cc taxonomy.ContractCoverage) (reason string, minConf, maxConf int) {
+	// Defensive guard: buildContractLookup only creates map entries
+	// for functions with len(SideEffects) > 0, so this branch is
+	// unreachable from the sole production caller. Kept for safety.
 	if len(effects) == 0 {
 		return "no_effects_detected", 0, 0
 	}
 	if cc.TotalContractual == 0 {
-		min, max := confidenceRange(effects)
-		return "all_effects_ambiguous", min, max
+		minC, maxC, found := confidenceRange(effects)
+		if !found {
+			// Effects exist but none have a Classification (e.g.,
+			// external analyzer with classify_signals: false).
+			// Distinct from "no_effects_detected" (len(effects)==0).
+			return "all_effects_unclassified", 0, 0
+		}
+		return "all_effects_ambiguous", minC, maxC
 	}
 	return "", 0, 0
 }
 
 // confidenceRange returns the min and max classification confidence
-// across all effects that have a non-nil Classification.
-func confidenceRange(effects []taxonomy.SideEffect) (minConf, maxConf int) {
+// across all effects that have a non-nil Classification. The found
+// return value indicates whether any classified effects were seen;
+// when false, minConf and maxConf are zero (not inverted sentinels).
+func confidenceRange(effects []taxonomy.SideEffect) (minConf, maxConf int, found bool) {
 	minConf, maxConf = 100, 0
 	for _, e := range effects {
 		if e.Classification == nil {
 			continue
 		}
+		found = true
 		minConf = min(minConf, e.Classification.Confidence)
 		maxConf = max(maxConf, e.Classification.Confidence)
 	}
-	return minConf, maxConf
+	if !found {
+		return 0, 0, false
+	}
+	return minConf, maxConf, true
 }
 
 // findSideEffectID finds the ID of the first side effect matching
