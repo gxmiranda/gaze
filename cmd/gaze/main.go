@@ -559,43 +559,23 @@ func runCrap(p crapParams) error {
 			"note: GazeCRAP unavailable — run 'gaze quality' to compute contract coverage")
 	}
 
-	// Resolve baseline path for comparison (D4).
-	var comparisonResult *crap.ComparisonResult
-	baselinePath, baselineExplicit := resolveBaselinePath(p.baselinePath, p.moduleDir, p.stderr)
-	if baselinePath != "" {
-		cr, baselineErr := loadAndCompare(baselinePath, baselineExplicit, rpt, p.moduleDir, p.stderr)
-		if baselineErr != nil {
-			return baselineErr
-		}
-		comparisonResult = cr
+	// Resolve baseline path and run comparison (D4).
+	comparisonResult, baselineErr := resolveBaselineAndCompare(
+		p.baselinePath, p.moduleDir, p.stderr, rpt)
+	if baselineErr != nil {
+		return baselineErr
 	}
 
-	// Write output: comparison path or normal path.
-	if comparisonResult != nil {
-		if err := writeCrapComparisonReport(p.stdout, p.format, comparisonResult); err != nil {
-			return err
-		}
-	} else {
-		if err := writeCrapReport(p.stdout, p.format, rpt); err != nil {
-			return err
-		}
+	// Write output and CI summary.
+	if err := writeCrapOutputAndSummary(
+		p.stdout, p.stderr, p.format, rpt, comparisonResult,
+		p.maxCrapload, p.maxGazeCrapload); err != nil {
+		return err
 	}
 
-	printCISummary(p.stderr, rpt, p.maxCrapload, p.maxGazeCrapload)
-
-	// Evaluate baseline comparison gate before threshold gate
-	// so comparison output is always visible (D7).
-	if comparisonResult != nil && !comparisonResult.Summary.Passed {
-		// Print comparison failure to stderr for visibility.
-		_, _ = fmt.Fprintf(p.stderr, "baseline comparison: FAIL (%d regressions, %d new violations)\n",
-			comparisonResult.Summary.Regressions,
-			comparisonResult.Summary.NewViolations)
-		return fmt.Errorf("baseline comparison failed: %d regressions, %d new-function violations",
-			comparisonResult.Summary.Regressions,
-			comparisonResult.Summary.NewViolations)
-	}
-
-	return checkCIThresholds(rpt, p.maxCrapload, p.maxGazeCrapload)
+	// Evaluate gates: baseline regression then CI thresholds (D7).
+	return evaluateCrapGates(rpt, comparisonResult, p.stderr,
+		p.maxCrapload, p.maxGazeCrapload)
 }
 
 // runCrapWithExternalAnalyzer runs the CRAP pipeline using an
@@ -849,6 +829,71 @@ func checkCIThresholds(rpt *crap.Report, maxCrapload, maxGazeCrapload int) error
 	return nil
 }
 
+// resolveBaselineAndCompare resolves the baseline file path using
+// resolveBaselinePath (D4 detection order: flag → config → default),
+// then loads the baseline and compares it against the current report.
+// Returns nil, nil if no baseline is configured.
+func resolveBaselineAndCompare(
+	baselinePath, moduleDir string,
+	stderr io.Writer,
+	rpt *crap.Report,
+) (*crap.ComparisonResult, error) {
+	resolved, explicit := resolveBaselinePath(baselinePath, moduleDir, stderr)
+	if resolved == "" {
+		return nil, nil
+	}
+	return loadAndCompare(resolved, explicit, rpt, moduleDir, stderr)
+}
+
+// writeCrapOutputAndSummary writes the CRAP report (comparison path or
+// normal path) to stdout, then prints the CI summary line to stderr.
+// The maxCrapload and maxGazeCrapload params are forwarded to
+// printCISummary for display.
+func writeCrapOutputAndSummary(
+	stdout, stderr io.Writer,
+	format string,
+	rpt *crap.Report,
+	cr *crap.ComparisonResult,
+	maxCrapload, maxGazeCrapload int,
+) error {
+	if cr != nil {
+		if err := writeCrapComparisonReport(stdout, format, cr); err != nil {
+			return err
+		}
+	} else {
+		if err := writeCrapReport(stdout, format, rpt); err != nil {
+			return err
+		}
+	}
+	printCISummary(stderr, rpt, maxCrapload, maxGazeCrapload)
+	return nil
+}
+
+// evaluateCrapGates evaluates CI gates in order: baseline regression
+// gate first, then CI threshold gate (D7 ordering). This ensures
+// comparison output is always visible before a threshold failure.
+// If the baseline comparison exists and failed, the error is returned
+// immediately — the threshold gate is not reached.
+func evaluateCrapGates(
+	rpt *crap.Report,
+	cr *crap.ComparisonResult,
+	stderr io.Writer,
+	maxCrapload, maxGazeCrapload int,
+) error {
+	// Baseline gate: evaluate first so comparison output is visible (D7).
+	if cr != nil && !cr.Summary.Passed {
+		_, _ = fmt.Fprintf(stderr, "baseline comparison: FAIL (%d regressions, %d new violations)\n",
+			cr.Summary.Regressions,
+			cr.Summary.NewViolations)
+		return fmt.Errorf("baseline comparison failed: %d regressions, %d new-function violations",
+			cr.Summary.Regressions,
+			cr.Summary.NewViolations)
+	}
+
+	// Threshold gate: evaluate only if baseline gate passed.
+	return checkCIThresholds(rpt, maxCrapload, maxGazeCrapload)
+}
+
 func newCrapCmd() *cobra.Command {
 	var (
 		format            string
@@ -1075,38 +1120,14 @@ func runQuality(p qualityParams) error {
 		return fmt.Errorf("no packages found for patterns %v", p.patterns)
 	}
 
-	// Pre-load config once (shared across all packages).
-	contractualThresh := p.contractualThresh
-	if contractualThresh == 0 {
-		contractualThresh = -1
-	}
-	incidentalThresh := p.incidentalThresh
-	if incidentalThresh == 0 {
-		incidentalThresh = -1
-	}
-	cfg, cfgErr := loadConfig(p.configPath, contractualThresh, incidentalThresh)
+	cfg, cfgErr := loadQualityConfig(p)
 	if cfgErr != nil {
-		return fmt.Errorf("loading config: %w", cfgErr)
+		return cfgErr
 	}
 
-	// Load module once for caller/interface analysis.
-	logger.Info("loading module packages for classification")
-	modResult, modErr := loader.LoadModule(moduleDir)
-	var modPkgs []*packages.Package
-	if modErr != nil {
-		logger.Warn("module loading failed; caller/interface signals degraded", "err", modErr)
-	} else {
-		modPkgs = modResult.Packages
-	}
-
-	// Wire AI-assisted assertion mapping when --ai-mapper is set.
-	var aiMapperFn quality.AIMapperFunc
-	if p.aiMapper != "" {
-		var aiErr error
-		aiMapperFn, aiErr = buildAIMapperFunc(p.aiMapper, p.aiMapperModel)
-		if aiErr != nil {
-			return aiErr
-		}
+	modPkgs, aiMapperFn, setupErr := setupQualityDeps(p, moduleDir)
+	if setupErr != nil {
+		return setupErr
 	}
 
 	var allReports []taxonomy.QualityReport
@@ -1120,51 +1141,21 @@ func runQuality(p qualityParams) error {
 
 		autoDetectMainPkg(pkgPath, &opts.IncludeUnexported)
 
-		logger.Info("analyzing package", "pkg", pkgPath)
-		results, loadErr := analysis.LoadAndAnalyze(pkgPath, opts)
-		if loadErr != nil {
-			return loadErr
+		reports, summary, perPkgErr := runQualityPerPackage(
+			pkgPath, p, opts, cfg, modPkgs, aiMapperFn)
+		if perPkgErr != nil {
+			return perPkgErr
 		}
-		if len(results) == 0 {
-			logger.Warn("no functions found to analyze", "pkg", pkgPath)
+		if reports == nil && summary == nil {
+			// Graceful skip: no tests or no analyzable functions.
 			continue
-		}
-
-		// Classify side effects.
-		results, err = runClassify(results, pkgPath, cfg, p.verbose, modPkgs)
-		if err != nil {
-			return fmt.Errorf("classification of %s: %w", pkgPath, err)
-		}
-
-		// Load the test package with test files.
-		testPkg, testErr := loadTestPackage(pkgPath)
-		if testErr != nil {
-			// Skip packages without tests gracefully.
-			logger.Warn("skipping package without tests", "pkg", pkgPath, "err", testErr)
-			continue
-		}
-
-		// Assess test quality.
-		qualOpts := quality.Options{
-			TargetFunc: p.targetFunc,
-			Verbose:    p.verbose,
-			Version:    version,
-			Stderr:     p.stderr,
-		}
-		if aiMapperFn != nil {
-			qualOpts.AIMapperFunc = aiMapperFn
-		}
-
-		reports, summary, assessErr := quality.Assess(results, testPkg, qualOpts)
-		if assessErr != nil {
-			return fmt.Errorf("quality assessment of %s: %w", pkgPath, assessErr)
 		}
 
 		allReports = append(allReports, reports...)
-		allSummaries = append(allSummaries, summary)
+		if summary != nil {
+			allSummaries = append(allSummaries, summary)
+		}
 	}
-
-	maxSkippedTestDisplay := quality.MaxSkippedTestDisplay
 
 	// Merge summaries into a single aggregate summary.
 	// This must happen before the empty-result check so that
@@ -1172,61 +1163,11 @@ func runQuality(p qualityParams) error {
 	merged := mergeSummaries(allSummaries)
 
 	if len(allReports) == 0 {
-		// No test-target pairs were resolved. Print a summary to
-		// stdout so the user knows what happened and how to fix it.
-		switch p.format {
-		case "json":
-			// Produce valid JSON even when no reports exist.
-			// Use a non-nil empty slice so JSON encodes as [] not null.
-			emptyReports := make([]taxonomy.QualityReport, 0)
-			if err := quality.WriteJSON(p.stdout, emptyReports, merged); err != nil {
-				return fmt.Errorf("writing empty quality JSON: %w", err)
-			}
-		default:
-			totalTestFuncs := merged.TotalTests + merged.SkippedTests
-			_, _ = fmt.Fprintf(p.stdout, "Quality: 0 of %d test functions mapped to a target\n", totalTestFuncs)
-			if merged.SkippedTests > 0 {
-				_, _ = fmt.Fprintf(p.stdout, "\nSkipped test functions (%d):\n", merged.SkippedTests)
-				limit := merged.SkippedTests
-				if limit > maxSkippedTestDisplay {
-					limit = maxSkippedTestDisplay
-				}
-				if limit > len(merged.SkippedTestNames) {
-					limit = len(merged.SkippedTestNames)
-				}
-				for _, name := range merged.SkippedTestNames[:limit] {
-					_, _ = fmt.Fprintf(p.stdout, "  - %s\n", name)
-				}
-				if merged.SkippedTests > maxSkippedTestDisplay {
-					_, _ = fmt.Fprintf(p.stdout, "  ... and %d more\n", merged.SkippedTests-maxSkippedTestDisplay)
-				}
-				_, _ = fmt.Fprintf(p.stdout, "\nHint: use --target=FuncName to specify the target explicitly\n")
-			}
-		}
-
-		// Gate: if quality thresholds are set, fail on zero results.
-		if p.minContractCoverage > 0 || p.maxOverSpecification > 0 {
-			return fmt.Errorf("no test-target pairs resolved — cannot evaluate thresholds "+
-				"(--min-contract-coverage=%d, --max-over-specification=%d)",
-				p.minContractCoverage, p.maxOverSpecification)
-		}
-		return nil
+		return handleQualityEmptyResults(p, merged)
 	}
 
-	// Write report.
-	switch p.format {
-	case "json":
-		if err := quality.WriteJSON(p.stdout, allReports, merged); err != nil {
-			return fmt.Errorf("writing quality JSON: %w", err)
-		}
-	default:
-		if err := quality.WriteText(p.stdout, allReports, merged); err != nil {
-			return fmt.Errorf("writing quality text report: %w", err)
-		}
-	}
-
-	// Check CI thresholds.
-	return checkQualityThresholds(p, allReports, merged)
+	// Write report and check CI thresholds.
+	return writeQualityReport(p, allReports, merged)
 }
 
 // mergeSummaries combines multiple PackageSummary values into one.
@@ -1322,6 +1263,183 @@ func loadTestPackage(pkgPath string) (*packages.Package, error) {
 	// silently returning a non-test package that would produce
 	// empty quality results.
 	return nil, fmt.Errorf("no test package found for %q — does the package have *_test.go files?", pkgPath)
+}
+
+// loadQualityConfig normalizes threshold values (0 → -1 for "unset")
+// and loads the classify config from the config file or defaults.
+func loadQualityConfig(p qualityParams) (*config.GazeConfig, error) {
+	contractualThresh := p.contractualThresh
+	if contractualThresh == 0 {
+		contractualThresh = -1
+	}
+	incidentalThresh := p.incidentalThresh
+	if incidentalThresh == 0 {
+		incidentalThresh = -1
+	}
+	cfg, err := loadConfig(p.configPath, contractualThresh, incidentalThresh)
+	if err != nil {
+		return nil, fmt.Errorf("loading config: %w", err)
+	}
+	return cfg, nil
+}
+
+// setupQualityDeps loads module packages for classification and wires
+// the AI-assisted assertion mapping callback. Module loading failure
+// is non-fatal (degraded mode). Returns the module packages (may be
+// nil on failure), the AI mapper function (nil when --ai-mapper is
+// not set), and an error only when AI mapper setup fails.
+func setupQualityDeps(p qualityParams, moduleDir string) ([]*packages.Package, quality.AIMapperFunc, error) {
+	logger.Info("loading module packages for classification")
+	modResult, modErr := loader.LoadModule(moduleDir)
+	var modPkgs []*packages.Package
+	if modErr != nil {
+		logger.Warn("module loading failed; caller/interface signals degraded", "err", modErr)
+	} else {
+		modPkgs = modResult.Packages
+	}
+
+	var aiMapperFn quality.AIMapperFunc
+	if p.aiMapper != "" {
+		var aiErr error
+		aiMapperFn, aiErr = buildAIMapperFunc(p.aiMapper, p.aiMapperModel)
+		if aiErr != nil {
+			return nil, nil, aiErr
+		}
+	}
+
+	return modPkgs, aiMapperFn, nil
+}
+
+// handleQualityEmptyResults writes the empty-result output and
+// enforces the zero-result threshold gate. Returns an error when
+// thresholds are set but no test-target pairs were resolved.
+func handleQualityEmptyResults(p qualityParams, merged *taxonomy.PackageSummary) error {
+	if err := writeQualityEmptyResults(p.stdout, p.format, merged); err != nil {
+		return err
+	}
+	if p.minContractCoverage > 0 || p.maxOverSpecification > 0 {
+		return fmt.Errorf("no test-target pairs resolved — cannot evaluate thresholds "+
+			"(--min-contract-coverage=%d, --max-over-specification=%d)",
+			p.minContractCoverage, p.maxOverSpecification)
+	}
+	return nil
+}
+
+// writeQualityReport writes the quality report output (JSON or text)
+// and then checks CI thresholds. Returns an error if writing fails
+// or if a threshold is violated.
+func writeQualityReport(p qualityParams, reports []taxonomy.QualityReport, summary *taxonomy.PackageSummary) error {
+	switch p.format {
+	case "json":
+		if err := quality.WriteJSON(p.stdout, reports, summary); err != nil {
+			return fmt.Errorf("writing quality JSON: %w", err)
+		}
+	default:
+		if err := quality.WriteText(p.stdout, reports, summary); err != nil {
+			return fmt.Errorf("writing quality text report: %w", err)
+		}
+	}
+	return checkQualityThresholds(p, reports, summary)
+}
+
+// runQualityPerPackage runs the quality analysis pipeline for a single
+// package: analyze side effects, classify, load test package, and
+// assess quality. Returns nil, nil, nil when the package has no tests
+// or no analyzable functions (graceful skip). Returns a non-nil error
+// only for genuine failures (analysis errors, classification errors,
+// assessment errors).
+func runQualityPerPackage(
+	pkgPath string,
+	p qualityParams,
+	opts analysis.Options,
+	cfg *config.GazeConfig,
+	modPkgs []*packages.Package,
+	aiMapperFn quality.AIMapperFunc,
+) ([]taxonomy.QualityReport, *taxonomy.PackageSummary, error) {
+	logger.Info("analyzing package", "pkg", pkgPath)
+	results, loadErr := analysis.LoadAndAnalyze(pkgPath, opts)
+	if loadErr != nil {
+		return nil, nil, loadErr
+	}
+	if len(results) == 0 {
+		logger.Warn("no functions found to analyze", "pkg", pkgPath)
+		return nil, nil, nil
+	}
+
+	// Classify side effects.
+	var err error
+	results, err = runClassify(results, pkgPath, cfg, p.verbose, modPkgs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("classification of %s: %w", pkgPath, err)
+	}
+
+	// Load the test package with test files.
+	testPkg, testErr := loadTestPackage(pkgPath)
+	if testErr != nil {
+		// Skip packages without tests gracefully.
+		logger.Warn("skipping package without tests", "pkg", pkgPath, "err", testErr)
+		return nil, nil, nil
+	}
+
+	// Assess test quality.
+	qualOpts := quality.Options{
+		TargetFunc: p.targetFunc,
+		Verbose:    p.verbose,
+		Version:    version,
+		Stderr:     p.stderr,
+	}
+	if aiMapperFn != nil {
+		qualOpts.AIMapperFunc = aiMapperFn
+	}
+
+	reports, summary, assessErr := quality.Assess(results, testPkg, qualOpts)
+	if assessErr != nil {
+		return nil, nil, fmt.Errorf("quality assessment of %s: %w", pkgPath, assessErr)
+	}
+
+	return reports, summary, nil
+}
+
+// writeQualityEmptyResults writes the empty-result output when no
+// test-target pairs were resolved. For JSON format, it writes a valid
+// JSON object with an empty quality_reports array. For text format, it
+// prints a summary line, skipped test names (truncated at
+// MaxSkippedTestDisplay), and a --target hint.
+// This function does NOT evaluate thresholds — that is the caller's
+// responsibility.
+func writeQualityEmptyResults(w io.Writer, format string, merged *taxonomy.PackageSummary) error {
+	maxSkippedTestDisplay := quality.MaxSkippedTestDisplay
+
+	switch format {
+	case "json":
+		// Produce valid JSON even when no reports exist.
+		// Use a non-nil empty slice so JSON encodes as [] not null.
+		emptyReports := make([]taxonomy.QualityReport, 0)
+		if err := quality.WriteJSON(w, emptyReports, merged); err != nil {
+			return fmt.Errorf("writing empty quality JSON: %w", err)
+		}
+	default:
+		totalTestFuncs := merged.TotalTests + merged.SkippedTests
+		_, _ = fmt.Fprintf(w, "Quality: 0 of %d test functions mapped to a target\n", totalTestFuncs)
+		if merged.SkippedTests > 0 {
+			_, _ = fmt.Fprintf(w, "\nSkipped test functions (%d):\n", merged.SkippedTests)
+			limit := merged.SkippedTests
+			if limit > maxSkippedTestDisplay {
+				limit = maxSkippedTestDisplay
+			}
+			if limit > len(merged.SkippedTestNames) {
+				limit = len(merged.SkippedTestNames)
+			}
+			for _, name := range merged.SkippedTestNames[:limit] {
+				_, _ = fmt.Fprintf(w, "  - %s\n", name)
+			}
+			if merged.SkippedTests > maxSkippedTestDisplay {
+				_, _ = fmt.Fprintf(w, "  ... and %d more\n", merged.SkippedTests-maxSkippedTestDisplay)
+			}
+			_, _ = fmt.Fprintf(w, "\nHint: use --target=FuncName to specify the target explicitly\n")
+		}
+	}
+	return nil
 }
 
 // checkQualityThresholds enforces CI threshold flags on quality

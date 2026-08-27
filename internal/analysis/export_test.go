@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"go/ast"
+	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/packages"
@@ -46,4 +47,19 @@ func IsPointerArgStore(store *ssa.Store, ptrParams map[string]*ssa.Parameter) (s
 // MatchesWriteSignature is exported for testing. See matchesWriteSignature.
 func MatchesWriteSignature(sig *types.Signature) bool {
 	return matchesWriteSignature(sig)
+}
+
+// HandleReceiverAssignStmt is exported for testing. See handleReceiverAssignStmt.
+func HandleReceiverAssignStmt(node *ast.AssignStmt, receiverName string) (bool, token.Pos) {
+	return handleReceiverAssignStmt(node, receiverName)
+}
+
+// HandleReceiverIncDecStmt is exported for testing. See handleReceiverIncDecStmt.
+func HandleReceiverIncDecStmt(node *ast.IncDecStmt, receiverName string) (bool, token.Pos) {
+	return handleReceiverIncDecStmt(node, receiverName)
+}
+
+// HandleReceiverCallExpr is exported for testing. See handleReceiverCallExpr.
+func HandleReceiverCallExpr(node *ast.CallExpr, receiverName string) (bool, token.Pos) {
+	return handleReceiverCallExpr(node, receiverName)
 }

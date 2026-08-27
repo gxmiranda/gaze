@@ -706,3 +706,201 @@ func TestTierStyle_AllTiers(t *testing.T) {
 		}
 	}
 }
+
+// --- writeEffectRows tests ---
+
+func TestWriteEffectRows_ClassifyMode(t *testing.T) {
+	effects := []taxonomy.SideEffect{
+		{
+			Tier:        taxonomy.TierP0,
+			Type:        taxonomy.ReturnValue,
+			Description: "returns int64",
+			Classification: &taxonomy.Classification{
+				Label:      taxonomy.Contractual,
+				Confidence: 85,
+			},
+		},
+	}
+	rows := writeEffectRows(effects, 26, true)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if len(rows[0]) != 4 {
+		t.Fatalf("expected 4 columns in classify mode, got %d", len(rows[0]))
+	}
+	if rows[0][0] != "P0" {
+		t.Errorf("tier = %q, want %q", rows[0][0], "P0")
+	}
+	if rows[0][1] != "ReturnValue" {
+		t.Errorf("type = %q, want %q", rows[0][1], "ReturnValue")
+	}
+	if rows[0][2] != "returns int64" {
+		t.Errorf("desc = %q, want %q", rows[0][2], "returns int64")
+	}
+	if rows[0][3] != "contractual/85%" {
+		t.Errorf("class = %q, want %q", rows[0][3], "contractual/85%")
+	}
+}
+
+func TestWriteEffectRows_NonClassifyMode(t *testing.T) {
+	effects := []taxonomy.SideEffect{
+		{
+			Tier:        taxonomy.TierP1,
+			Type:        taxonomy.MapMutation,
+			Description: "mutates map",
+		},
+	}
+	rows := writeEffectRows(effects, 42, false)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if len(rows[0]) != 3 {
+		t.Fatalf("expected 3 columns in non-classify mode, got %d", len(rows[0]))
+	}
+	if rows[0][0] != "P1" {
+		t.Errorf("tier = %q, want %q", rows[0][0], "P1")
+	}
+	if rows[0][2] != "mutates map" {
+		t.Errorf("desc = %q, want %q", rows[0][2], "mutates map")
+	}
+}
+
+func TestWriteEffectRows_DescriptionTruncation(t *testing.T) {
+	effects := []taxonomy.SideEffect{
+		{
+			Tier:        taxonomy.TierP0,
+			Type:        taxonomy.ReturnValue,
+			Description: "this is a very long description that exceeds the maximum",
+		},
+	}
+	// maxDesc = 20: should truncate to 17 chars + "..."
+	rows := writeEffectRows(effects, 20, false)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	desc := rows[0][2]
+	if len(desc) != 20 {
+		t.Errorf("truncated desc length = %d, want 20", len(desc))
+	}
+	if !strings.HasSuffix(desc, "...") {
+		t.Errorf("truncated desc should end with '...', got %q", desc)
+	}
+}
+
+func TestWriteEffectRows_NilClassification(t *testing.T) {
+	effects := []taxonomy.SideEffect{
+		{
+			Tier:           taxonomy.TierP0,
+			Type:           taxonomy.ReturnValue,
+			Description:    "returns error",
+			Classification: nil,
+		},
+	}
+	rows := writeEffectRows(effects, 26, true)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	if rows[0][3] != "—" {
+		t.Errorf("nil classification should produce dash cell, got %q", rows[0][3])
+	}
+}
+
+func TestWriteEffectRows_ClassificationTruncation(t *testing.T) {
+	effects := []taxonomy.SideEffect{
+		{
+			Tier:        taxonomy.TierP0,
+			Type:        taxonomy.ReturnValue,
+			Description: "returns",
+			Classification: &taxonomy.Classification{
+				Label:      taxonomy.ClassificationLabel("verylonglabel"),
+				Confidence: 100,
+			},
+		},
+	}
+	rows := writeEffectRows(effects, 26, true)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+	classCell := rows[0][3]
+	// "verylonglabel/100%" = 18 chars > maxClassify (16), should truncate
+	if len(classCell) > 16 {
+		t.Errorf("classification cell should be truncated to 16 chars, got %d: %q", len(classCell), classCell)
+	}
+	if !strings.HasSuffix(classCell, "...") {
+		t.Errorf("truncated classification should end with '...', got %q", classCell)
+	}
+}
+
+// --- writeVerboseSignals tests ---
+
+func TestWriteVerboseSignals_WithSignals(t *testing.T) {
+	effects := []taxonomy.SideEffect{
+		{
+			Type:     taxonomy.ReturnValue,
+			Location: "store.go:42",
+			Classification: &taxonomy.Classification{
+				Label:      taxonomy.Contractual,
+				Confidence: 85,
+				Signals: []taxonomy.Signal{
+					{
+						Source:    "interface",
+						Weight:    30,
+						Reasoning: "implements io.Writer",
+					},
+					{
+						Source:     "naming",
+						Weight:     10,
+						SourceFile: "store.go",
+						Excerpt:    "Save(item)",
+					},
+				},
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	writeVerboseSignals(&buf, effects)
+	output := buf.String()
+
+	if !strings.Contains(output, "Signals for ReturnValue (store.go:42):") {
+		t.Error("missing signal header")
+	}
+	if !strings.Contains(output, "interface: +30") {
+		t.Error("missing signal source and weight")
+	}
+	if !strings.Contains(output, "implements io.Writer") {
+		t.Error("missing signal reasoning")
+	}
+	if !strings.Contains(output, "source: store.go") {
+		t.Error("missing signal source file")
+	}
+	if !strings.Contains(output, `excerpt: "Save(item)"`) {
+		t.Error("missing signal excerpt")
+	}
+}
+
+func TestWriteVerboseSignals_NoSignals(t *testing.T) {
+	effects := []taxonomy.SideEffect{
+		{
+			Type:           taxonomy.ReturnValue,
+			Location:       "store.go:42",
+			Classification: nil,
+		},
+		{
+			Type:     taxonomy.ErrorReturn,
+			Location: "store.go:43",
+			Classification: &taxonomy.Classification{
+				Label:   taxonomy.Contractual,
+				Signals: nil, // no signals
+			},
+		},
+	}
+
+	var buf bytes.Buffer
+	writeVerboseSignals(&buf, effects)
+	output := buf.String()
+
+	if output != "" {
+		t.Errorf("expected empty output for effects without signals, got %q", output)
+	}
+}

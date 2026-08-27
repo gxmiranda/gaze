@@ -299,44 +299,17 @@ func isReceiverFieldStore(store *ssa.Store, receiver *ssa.Parameter) (string, bo
 }
 
 // isPointerArgStore checks if a Store instruction writes through a
-// pointer parameter. Returns the parameter name if true.
+// pointer parameter. tracesToParam handles chain walking through
+// FieldAddr, IndexAddr, UnOp, and Phi instructions recursively,
+// so this function only needs to delegate to it for each parameter.
+// Returns the parameter name if true.
 func isPointerArgStore(store *ssa.Store, ptrParams map[string]*ssa.Parameter) (string, bool) {
 	addr := store.Addr
-
 	for name, param := range ptrParams {
 		if tracesToParam(addr, param) {
 			return name, true
 		}
-		// Also check UnOp (dereference).
-		if unop, ok := addr.(*ssa.UnOp); ok {
-			if tracesToParam(unop.X, param) {
-				return name, true
-			}
-		}
-		// FieldAddr through dereferenced pointer param.
-		if fa, ok := addr.(*ssa.FieldAddr); ok {
-			if tracesToParam(fa.X, param) {
-				return name, true
-			}
-			if unop, ok := fa.X.(*ssa.UnOp); ok {
-				if tracesToParam(unop.X, param) {
-					return name, true
-				}
-			}
-		}
-		// IndexAddr through pointer param (for *[]T, *[N]T).
-		if ia, ok := addr.(*ssa.IndexAddr); ok {
-			if tracesToParam(ia.X, param) {
-				return name, true
-			}
-			if unop, ok := ia.X.(*ssa.UnOp); ok {
-				if tracesToParam(unop.X, param) {
-					return name, true
-				}
-			}
-		}
 	}
-
 	return "", false
 }
 
@@ -492,48 +465,13 @@ func detectASTReceiverMutations(
 		}
 		switch node := n.(type) {
 		case *ast.AssignStmt:
-			// Check if any LHS expression has a root ident
-			// matching the receiver name (FR-003: only receiver
-			// field assignments, not local variables).
-			for _, lhs := range node.Lhs {
-				if ident := exprRootIdent(lhs); ident != nil && ident.Name == receiverName {
-					// Ensure this is a field access, not a bare
-					// receiver assignment (e.g., `recv = something`).
-					if _, ok := lhs.(*ast.Ident); !ok {
-						found = true
-						foundPos = node.Pos()
-						return false
-					}
-				}
-			}
+			found, foundPos = handleReceiverAssignStmt(node, receiverName)
 		case *ast.IncDecStmt:
-			// Handle c.count++ / c.count--
-			if ident := exprRootIdent(node.X); ident != nil && ident.Name == receiverName {
-				if _, ok := node.X.(*ast.Ident); !ok {
-					found = true
-					foundPos = node.Pos()
-					return false
-				}
-			}
+			found, foundPos = handleReceiverIncDecStmt(node, receiverName)
 		case *ast.CallExpr:
-			// Check for method calls on receiver fields
-			// (FR-008: e.g., si.index.Delete(key)).
-			if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
-				if ident := exprRootIdent(sel.X); ident != nil && ident.Name == receiverName {
-					// Must be a method call on a field, not a
-					// direct method call on the receiver itself
-					// (e.g., si.Method() vs si.field.Method()).
-					if innerSel, ok := sel.X.(*ast.SelectorExpr); ok {
-						if root := exprRootIdent(innerSel.X); root != nil && root.Name == receiverName {
-							found = true
-							foundPos = node.Pos()
-							return false
-						}
-					}
-				}
-			}
+			found, foundPos = handleReceiverCallExpr(node, receiverName)
 		}
-		return true
+		return !found
 	})
 
 	if !found {
@@ -550,6 +488,59 @@ func detectASTReceiverMutations(
 		Target:      funcName,
 		Location:    fset.Position(foundPos).String(),
 	}}
+}
+
+// handleReceiverAssignStmt checks whether an assignment statement mutates
+// a receiver field. Returns (true, pos) if any LHS expression roots to
+// receiverName via a field access (e.g., recv.Field = v). Bare receiver
+// assignments (recv = v) are excluded because they rebind the local
+// pointer, not the pointed-to state (FR-003).
+func handleReceiverAssignStmt(node *ast.AssignStmt, receiverName string) (bool, token.Pos) {
+	for _, lhs := range node.Lhs {
+		if ident := exprRootIdent(lhs); ident != nil && ident.Name == receiverName {
+			// Ensure this is a field access, not a bare
+			// receiver assignment (e.g., `recv = something`).
+			if _, ok := lhs.(*ast.Ident); !ok {
+				return true, node.Pos()
+			}
+		}
+	}
+	return false, token.NoPos
+}
+
+// handleReceiverIncDecStmt checks whether an increment/decrement statement
+// mutates a receiver field. Returns (true, pos) if the operand roots to
+// receiverName via a field access (e.g., recv.count++). Bare receiver
+// increments (recv++) are excluded.
+func handleReceiverIncDecStmt(node *ast.IncDecStmt, receiverName string) (bool, token.Pos) {
+	if ident := exprRootIdent(node.X); ident != nil && ident.Name == receiverName {
+		if _, ok := node.X.(*ast.Ident); !ok {
+			return true, node.Pos()
+		}
+	}
+	return false, token.NoPos
+}
+
+// handleReceiverCallExpr checks whether a call expression invokes a method
+// on a receiver field (e.g., recv.field.Delete(key)). Direct method calls
+// on the receiver itself (e.g., recv.Method()) are excluded because they
+// are not field-mutation evidence — the receiver method may or may not
+// mutate state (FR-008).
+func handleReceiverCallExpr(node *ast.CallExpr, receiverName string) (bool, token.Pos) {
+	sel, ok := node.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false, token.NoPos
+	}
+	if ident := exprRootIdent(sel.X); ident != nil && ident.Name == receiverName {
+		// Must be a method call on a field, not a direct method call
+		// on the receiver itself (e.g., si.Method() vs si.field.Method()).
+		if innerSel, ok := sel.X.(*ast.SelectorExpr); ok {
+			if root := exprRootIdent(innerSel.X); root != nil && root.Name == receiverName {
+				return true, node.Pos()
+			}
+		}
+	}
+	return false, token.NoPos
 }
 
 // detectASTPointerArgMutations checks if a function mutates any of

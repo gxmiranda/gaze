@@ -3,6 +3,8 @@ package analysis_test
 import (
 	"errors"
 	"go/ast"
+	"go/parser"
+	"go/token"
 	"go/types"
 	"strings"
 	"testing"
@@ -268,6 +270,156 @@ func TestExprRootIdent_AllBranches(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// handleReceiverAssignStmt tests (task 2.2)
+// ---------------------------------------------------------------------------
+
+// findNode walks a parsed file and returns the first node of type T.
+func findNode[T ast.Node](file *ast.File) T {
+	var result T
+	ast.Inspect(file, func(n ast.Node) bool {
+		if v, ok := n.(T); ok {
+			result = v
+			return false
+		}
+		return true
+	})
+	return result
+}
+
+// parseSource parses a Go source string and returns the file and file set.
+func parseSource(t *testing.T, src string) (*ast.File, *token.FileSet) {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "test.go", src, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file, fset
+}
+
+func TestHandleReceiverAssignStmt_FieldAssign(t *testing.T) {
+	src := `package p; func f() { recv.Field = 1 }`
+	file, _ := parseSource(t, src)
+
+	node := findNode[*ast.AssignStmt](file)
+	if node == nil {
+		t.Fatal("no AssignStmt found")
+	}
+
+	found, pos := analysis.HandleReceiverAssignStmt(node, "recv")
+	if !found {
+		t.Error("expected mutation to be detected for recv.Field = 1")
+	}
+	if !pos.IsValid() {
+		t.Error("expected valid position")
+	}
+}
+
+func TestHandleReceiverAssignStmt_BareAssign(t *testing.T) {
+	src := `package p; func f() { recv = v }`
+	file, _ := parseSource(t, src)
+
+	node := findNode[*ast.AssignStmt](file)
+	if node == nil {
+		t.Fatal("no AssignStmt found")
+	}
+
+	found, _ := analysis.HandleReceiverAssignStmt(node, "recv")
+	if found {
+		t.Error("bare receiver assignment (recv = v) should not be detected as mutation")
+	}
+}
+
+func TestHandleReceiverAssignStmt_Unrelated(t *testing.T) {
+	src := `package p; func f() { x.Field = 1 }`
+	file, _ := parseSource(t, src)
+
+	node := findNode[*ast.AssignStmt](file)
+	if node == nil {
+		t.Fatal("no AssignStmt found")
+	}
+
+	found, _ := analysis.HandleReceiverAssignStmt(node, "recv")
+	if found {
+		t.Error("assignment to unrelated variable x should not be detected as receiver mutation")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleReceiverIncDecStmt tests (task 2.2)
+// ---------------------------------------------------------------------------
+
+func TestHandleReceiverIncDecStmt_FieldIncrement(t *testing.T) {
+	src := `package p; func f() { recv.count++ }`
+	file, _ := parseSource(t, src)
+
+	node := findNode[*ast.IncDecStmt](file)
+	if node == nil {
+		t.Fatal("no IncDecStmt found")
+	}
+
+	found, pos := analysis.HandleReceiverIncDecStmt(node, "recv")
+	if !found {
+		t.Error("expected mutation to be detected for recv.count++")
+	}
+	if !pos.IsValid() {
+		t.Error("expected valid position")
+	}
+}
+
+func TestHandleReceiverIncDecStmt_BareIncrement(t *testing.T) {
+	src := `package p; func f() { recv++ }`
+	file, _ := parseSource(t, src)
+
+	node := findNode[*ast.IncDecStmt](file)
+	if node == nil {
+		t.Fatal("no IncDecStmt found")
+	}
+
+	found, _ := analysis.HandleReceiverIncDecStmt(node, "recv")
+	if found {
+		t.Error("bare receiver increment (recv++) should not be detected as mutation")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// handleReceiverCallExpr tests (task 2.2)
+// ---------------------------------------------------------------------------
+
+func TestHandleReceiverCallExpr_FieldMethod(t *testing.T) {
+	src := `package p; func f() { recv.f.Delete(k) }`
+	file, _ := parseSource(t, src)
+
+	node := findNode[*ast.CallExpr](file)
+	if node == nil {
+		t.Fatal("no CallExpr found")
+	}
+
+	found, pos := analysis.HandleReceiverCallExpr(node, "recv")
+	if !found {
+		t.Error("expected mutation to be detected for recv.f.Delete(k)")
+	}
+	if !pos.IsValid() {
+		t.Error("expected valid position")
+	}
+}
+
+func TestHandleReceiverCallExpr_DirectMethod(t *testing.T) {
+	src := `package p; func f() { recv.Method() }`
+	file, _ := parseSource(t, src)
+
+	node := findNode[*ast.CallExpr](file)
+	if node == nil {
+		t.Fatal("no CallExpr found")
+	}
+
+	found, _ := analysis.HandleReceiverCallExpr(node, "recv")
+	if found {
+		t.Error("direct receiver method call (recv.Method()) should not be detected as field mutation")
+	}
+}
+
 // toTypesFunc extracts the *types.Func for a FuncDecl from the
 // package's type information. Returns nil if not found.
 func toTypesFunc(pkg *packages.Package, fd *ast.FuncDecl) *types.Func {
@@ -442,6 +594,46 @@ func TestIsPointerArgStore(t *testing.T) {
 		}
 		if !foundDst {
 			t.Error("expected at least one store to match pointer param 'dst' via UnOp dereference")
+		}
+	})
+
+	t.Run("DirectStore", func(t *testing.T) {
+		fn, stores := extractStoresForFunc(t, ssaPkg, "SetDirect")
+		ptrParams := buildPtrParams(fn, false)
+
+		if _, ok := ptrParams["p"]; !ok {
+			t.Fatal("expected 'p' in ptrParams for SetDirect")
+		}
+
+		foundP := false
+		for _, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, ptrParams)
+			if matched && name == "p" {
+				foundP = true
+			}
+		}
+		if !foundP {
+			t.Error("expected at least one store to match pointer param 'p' via direct store")
+		}
+	})
+
+	t.Run("NestedFieldAddrChain", func(t *testing.T) {
+		fn, stores := extractStoresForFunc(t, ssaPkg, "SetNestedValue")
+		ptrParams := buildPtrParams(fn, false)
+
+		if _, ok := ptrParams["cfg"]; !ok {
+			t.Fatal("expected 'cfg' in ptrParams for SetNestedValue")
+		}
+
+		foundCfg := false
+		for _, store := range stores {
+			name, matched := analysis.IsPointerArgStore(store, ptrParams)
+			if matched && name == "cfg" {
+				foundCfg = true
+			}
+		}
+		if !foundCfg {
+			t.Error("expected at least one store to match pointer param 'cfg' via nested FieldAddr chain")
 		}
 	})
 
