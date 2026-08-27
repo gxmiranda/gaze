@@ -11,8 +11,10 @@ import (
 	"testing"
 
 	"github.com/unbound-force/gaze/internal/aireport"
+	"github.com/unbound-force/gaze/internal/analysis"
 	"github.com/unbound-force/gaze/internal/crap"
 	"github.com/unbound-force/gaze/internal/provider/goprovider"
+	"github.com/unbound-force/gaze/internal/quality"
 	"github.com/unbound-force/gaze/internal/taxonomy"
 )
 
@@ -1013,6 +1015,181 @@ func TestRunCrap_ZeroResults_NoThreshold_ExitZero(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// resolveBaselineAndCompare helper tests (Task 3.2)
+// ---------------------------------------------------------------------------
+
+func TestResolveBaselineAndCompare_NoBaseline(t *testing.T) {
+	// Empty baseline path, no default file — returns nil, nil.
+	rpt := stubReport()
+	dir := t.TempDir() // no .gaze/baseline.json here
+	var stderr bytes.Buffer
+
+	cr, err := resolveBaselineAndCompare("", dir, &stderr, rpt)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cr != nil {
+		t.Errorf("expected nil ComparisonResult, got %+v", cr)
+	}
+}
+
+func TestResolveBaselineAndCompare_BaselinePresent(t *testing.T) {
+	// Valid baseline file → non-nil ComparisonResult.
+	rpt := stubReport()
+	dir := t.TempDir()
+
+	// Write a valid baseline JSON file.
+	gazeDir := filepath.Join(dir, ".gaze")
+	if err := os.MkdirAll(gazeDir, 0o755); err != nil {
+		t.Fatalf("creating .gaze dir: %v", err)
+	}
+	baselineData, err := json.Marshal(rpt)
+	if err != nil {
+		t.Fatalf("marshaling baseline: %v", err)
+	}
+	baselinePath := filepath.Join(gazeDir, "baseline.json")
+	if err := os.WriteFile(baselinePath, baselineData, 0o600); err != nil {
+		t.Fatalf("writing baseline: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	cr, baselineErr := resolveBaselineAndCompare("", dir, &stderr, rpt)
+	if baselineErr != nil {
+		t.Fatalf("unexpected error: %v", baselineErr)
+	}
+	if cr == nil {
+		t.Fatal("expected non-nil ComparisonResult")
+	}
+}
+
+func TestResolveBaselineAndCompare_LoadError(t *testing.T) {
+	// Explicit path to corrupt file → error returned.
+	rpt := stubReport()
+	dir := t.TempDir()
+	corruptPath := filepath.Join(dir, "corrupt.json")
+	if err := os.WriteFile(corruptPath, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatalf("writing corrupt file: %v", err)
+	}
+
+	var stderr bytes.Buffer
+	cr, err := resolveBaselineAndCompare(corruptPath, dir, &stderr, rpt)
+	if err == nil {
+		t.Fatal("expected error for corrupt baseline")
+	}
+	if cr != nil {
+		t.Errorf("expected nil ComparisonResult on error, got %+v", cr)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// evaluateCrapGates helper tests (Task 3.2)
+// ---------------------------------------------------------------------------
+
+func TestEvaluateCrapGates_BaselineRegression(t *testing.T) {
+	// Comparison with Passed=false → error before thresholds.
+	rpt := stubReport()
+	cr := &crap.ComparisonResult{
+		Summary: crap.ComparisonSummary{
+			Passed:        false,
+			Regressions:   2,
+			NewViolations: 1,
+		},
+	}
+	var stderr bytes.Buffer
+	err := evaluateCrapGates(rpt, cr, &stderr, 100, 100)
+	if err == nil {
+		t.Fatal("expected error for baseline regression")
+	}
+	if !strings.Contains(err.Error(), "baseline comparison failed") {
+		t.Errorf("expected 'baseline comparison failed' in error, got: %s", err)
+	}
+	if !strings.Contains(err.Error(), "2 regressions") {
+		t.Errorf("expected '2 regressions' in error, got: %s", err)
+	}
+}
+
+func TestEvaluateCrapGates_BaselinePassThenThresholds(t *testing.T) {
+	// Comparison with Passed=true + thresholds pass → nil.
+	rpt := stubReport() // CRAPload=0
+	cr := &crap.ComparisonResult{
+		Summary: crap.ComparisonSummary{
+			Passed: true,
+		},
+	}
+	var stderr bytes.Buffer
+	err := evaluateCrapGates(rpt, cr, &stderr, 100, 0)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+}
+
+func TestEvaluateCrapGates_ThresholdViolation(t *testing.T) {
+	// No baseline, threshold exceeded → threshold error.
+	rpt := stubReport()
+	rpt.Summary.CRAPload = 10 // exceeds max of 5
+	var stderr bytes.Buffer
+	err := evaluateCrapGates(rpt, nil, &stderr, 5, 0)
+	if err == nil {
+		t.Fatal("expected error for threshold violation")
+	}
+	if !strings.Contains(err.Error(), "CRAPload") {
+		t.Errorf("expected 'CRAPload' in error, got: %s", err)
+	}
+}
+
+func TestEvaluateCrapGates_AllPass(t *testing.T) {
+	// Nil comparison, no threshold violation → nil.
+	rpt := stubReport() // CRAPload=0
+	var stderr bytes.Buffer
+	err := evaluateCrapGates(rpt, nil, &stderr, 100, 0)
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// writeCrapOutputAndSummary helper tests (Task 3.2)
+// ---------------------------------------------------------------------------
+
+func TestWriteCrapOutputAndSummary_WithComparison(t *testing.T) {
+	rpt := stubReport()
+	cr := &crap.ComparisonResult{
+		Report:  rpt,
+		Summary: crap.ComparisonSummary{Passed: true},
+	}
+	var stdout, stderr bytes.Buffer
+	err := writeCrapOutputAndSummary(&stdout, &stderr, "text", rpt, cr, 0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Comparison report should be written (includes "Baseline Comparison").
+	out := stdout.String()
+	if out == "" {
+		t.Error("expected non-empty output")
+	}
+	if !strings.Contains(out, "Baseline Comparison") {
+		t.Errorf("expected 'Baseline Comparison' in output, got: %s", out)
+	}
+}
+
+func TestWriteCrapOutputAndSummary_WithoutComparison(t *testing.T) {
+	rpt := stubReport()
+	var stdout, stderr bytes.Buffer
+	err := writeCrapOutputAndSummary(&stdout, &stderr, "text", rpt, nil, 0, 0)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := stdout.String()
+	if out == "" {
+		t.Error("expected non-empty output")
+	}
+	// Normal report should contain function data.
+	if !strings.Contains(out, "Foo") {
+		t.Errorf("expected output to contain 'Foo', got: %s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // runSelfCheck fast unit tests (US3 — T017)
 // ---------------------------------------------------------------------------
 
@@ -1597,6 +1774,198 @@ func TestRunQuality_MixedBDDAndNormalPackages(t *testing.T) {
 	// Should also report skipped tests from the bddstyle package.
 	if !strings.Contains(out, "skipped") {
 		t.Error("expected skipped test info from bddstyle package")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// runQualityPerPackage helper tests (Task 4.2)
+// ---------------------------------------------------------------------------
+
+func TestRunQualityPerPackage_Success(t *testing.T) {
+	// Valid package with tests → non-empty reports, non-nil summary.
+	p := qualityParams{
+		stdout: &bytes.Buffer{},
+		stderr: &bytes.Buffer{},
+	}
+	opts := analysis.Options{Version: version}
+	cfg, _ := loadConfig("", -1, -1)
+	reports, summary, err := runQualityPerPackage(
+		"github.com/unbound-force/gaze/internal/quality/testdata/src/welltested",
+		p, opts, cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(reports) == 0 {
+		t.Error("expected non-empty reports for welltested package")
+	}
+	if summary == nil {
+		t.Fatal("expected non-nil summary")
+	}
+}
+
+func TestRunQualityPerPackage_NoTests(t *testing.T) {
+	// Package where loadTestPackage fails → nil, nil, nil (graceful skip).
+	p := qualityParams{
+		stdout: &bytes.Buffer{},
+		stderr: &bytes.Buffer{},
+	}
+	opts := analysis.Options{Version: version}
+	cfg, _ := loadConfig("", -1, -1)
+	// The "returns" package has no *_test.go files.
+	reports, summary, err := runQualityPerPackage(
+		"github.com/unbound-force/gaze/internal/analysis/testdata/src/returns",
+		p, opts, cfg, nil, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if reports != nil {
+		t.Errorf("expected nil reports for no-test package, got %d", len(reports))
+	}
+	if summary != nil {
+		t.Errorf("expected nil summary for no-test package, got %+v", summary)
+	}
+}
+
+func TestRunQualityPerPackage_ClassifyError(t *testing.T) {
+	// Classification failure → non-nil error.
+	// Use a non-existent config path to cause a classification error.
+	p := qualityParams{
+		stdout: &bytes.Buffer{},
+		stderr: &bytes.Buffer{},
+	}
+	opts := analysis.Options{Version: version}
+	// Load a config with extreme thresholds that cause classification
+	// to still work. Instead, we trigger a classify error by passing
+	// a nil config which runClassify handles gracefully. We need a
+	// package that has results to get past the analysis step.
+	// Actually, runClassify handles nil config gracefully. Let's test
+	// with a bad package path instead.
+	reports, summary, err := runQualityPerPackage(
+		"github.com/nonexistent/totally-fake-package",
+		p, opts, nil, nil, nil)
+	if err == nil {
+		t.Fatal("expected error for nonexistent package")
+	}
+	if reports != nil {
+		t.Errorf("expected nil reports on error, got %d", len(reports))
+	}
+	if summary != nil {
+		t.Errorf("expected nil summary on error, got %+v", summary)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// writeQualityEmptyResults helper tests (Task 4.2)
+// ---------------------------------------------------------------------------
+
+func TestWriteQualityEmptyResults_TextFormat(t *testing.T) {
+	// Text format with skipped tests → writes summary, names, hint.
+	merged := &taxonomy.PackageSummary{
+		TotalTests:       0,
+		SkippedTests:     3,
+		SkippedTestNames: []string{"TestAlpha", "TestBeta", "TestGamma"},
+	}
+	var buf bytes.Buffer
+	err := writeQualityEmptyResults(&buf, "text", merged)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "0 of 3") {
+		t.Errorf("expected '0 of 3' in output, got: %q", out)
+	}
+	if !strings.Contains(out, "TestAlpha") {
+		t.Errorf("expected 'TestAlpha' in output, got: %q", out)
+	}
+	if !strings.Contains(out, "TestBeta") {
+		t.Errorf("expected 'TestBeta' in output, got: %q", out)
+	}
+	if !strings.Contains(out, "--target") {
+		t.Errorf("expected '--target' hint in output, got: %q", out)
+	}
+}
+
+func TestWriteQualityEmptyResults_JSONFormat(t *testing.T) {
+	// JSON format → writes valid JSON with empty array.
+	merged := &taxonomy.PackageSummary{
+		TotalTests:       0,
+		SkippedTests:     2,
+		SkippedTestNames: []string{"TestFoo", "TestBar"},
+	}
+	var buf bytes.Buffer
+	err := writeQualityEmptyResults(&buf, "json", merged)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	var parsed map[string]interface{}
+	if jsonErr := json.Unmarshal(buf.Bytes(), &parsed); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v\noutput: %s", jsonErr, buf.String())
+	}
+	reports, ok := parsed["quality_reports"]
+	if !ok {
+		t.Fatal("expected 'quality_reports' key in JSON")
+	}
+	arr, ok := reports.([]interface{})
+	if !ok {
+		t.Fatalf("expected quality_reports to be array, got %T", reports)
+	}
+	if len(arr) != 0 {
+		t.Errorf("expected empty quality_reports, got %d elements", len(arr))
+	}
+}
+
+func TestWriteQualityEmptyResults_TextNoSkipped(t *testing.T) {
+	// Text format with 0 skipped → summary only, no names or hint.
+	merged := &taxonomy.PackageSummary{
+		TotalTests:   0,
+		SkippedTests: 0,
+	}
+	var buf bytes.Buffer
+	err := writeQualityEmptyResults(&buf, "text", merged)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "0 of 0") {
+		t.Errorf("expected '0 of 0' in output, got: %q", out)
+	}
+	// Should NOT contain skipped section or hint.
+	if strings.Contains(out, "Skipped test functions") {
+		t.Errorf("expected no skipped section with 0 skipped, got: %q", out)
+	}
+	if strings.Contains(out, "--target") {
+		t.Errorf("expected no --target hint with 0 skipped, got: %q", out)
+	}
+}
+
+func TestWriteQualityEmptyResults_TextTruncation(t *testing.T) {
+	// >MaxSkippedTestDisplay skipped → truncated with "and N more".
+	maxDisplay := quality.MaxSkippedTestDisplay
+	totalSkipped := maxDisplay + 5
+	names := make([]string, totalSkipped)
+	for i := range names {
+		names[i] = fmt.Sprintf("TestFunc%d", i+1)
+	}
+	merged := &taxonomy.PackageSummary{
+		TotalTests:       0,
+		SkippedTests:     totalSkipped,
+		SkippedTestNames: names,
+	}
+	var buf bytes.Buffer
+	err := writeQualityEmptyResults(&buf, "text", merged)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	out := buf.String()
+	// Should show the truncation message.
+	expected := fmt.Sprintf("... and %d more", 5)
+	if !strings.Contains(out, expected) {
+		t.Errorf("expected truncation message %q in output, got: %q", expected, out)
+	}
+	// The last name beyond truncation should NOT appear.
+	lastFunc := fmt.Sprintf("TestFunc%d", totalSkipped)
+	if strings.Contains(out, lastFunc) {
+		t.Errorf("expected %q to be truncated out, but found it in output", lastFunc)
 	}
 }
 

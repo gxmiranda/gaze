@@ -152,15 +152,21 @@ func writeCrapOutputAndSummary(
     format string,
     rpt *crap.Report,
     comparisonResult *crap.ComparisonResult,
-    maxCrapload, maxGazeCrapload *int,
+    maxCrapload, maxGazeCrapload int,
 ) error
+// Note: maxCrapload/maxGazeCrapload are forwarded to printCISummary
+// for display in the CI summary output. They use plain int to match
+// the crapParams struct and checkCIThresholds/printCISummary signatures.
 
 func evaluateCrapGates(
     rpt *crap.Report,
     comparisonResult *crap.ComparisonResult,
     stderr io.Writer,
-    maxCrapload, maxGazeCrapload *int,
+    maxCrapload, maxGazeCrapload int,
 ) error
+// Note: threshold params use plain int (matching crapParams), not *int.
+// The *int nil-vs-zero pattern is used in the report pipeline (reportParams)
+// but not in the gaze crap command path.
 ```
 
 ### D5: Simplify `isPointerArgStore` by removing unreachable branches
@@ -220,6 +226,25 @@ together. `writeOneResult` is in a different package and is independent.
 Starting with the simplest change (branch removal) builds momentum and
 establishes the testing pattern before tackling the higher-complexity
 extractions.
+
+## Coverage Strategy
+
+All new helpers are tested with **unit tests** using synthetic data
+(parsed AST nodes, struct literals, `io.Writer` buffers). No package
+loading, subprocess execution, or `testing.Short()` guards are needed.
+
+- **Target**: Each extracted helper should have sufficient branch coverage
+  to bring its CRAP score below 10.
+- **Test count**: ~28 new unit tests across 5 test files.
+- **Regression safety**: Existing `TestRunCrap_*` (12+ tests),
+  `TestRunQuality_*` (18+ tests), `TestWriteText_*` (9+ tests),
+  `TestIsPointerArgStore` (6 subtests), and `TestDetectMutations_*`
+  tests provide end-to-end regression coverage for the parent functions.
+  No existing tests are modified or removed.
+- **`runQualityPerPackage`**: Tested transitively through the existing
+  `TestRunQuality_*` integration tests. Direct unit tests use the
+  existing `qualityParams` DI pattern with real but minimal package
+  fixtures from `testdata/src/`.
 
 ## Risks / Trade-offs
 

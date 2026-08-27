@@ -194,6 +194,12 @@ consolidates lines 562-571 of the current `runCrap`.
 - **THEN** it SHALL return a non-nil ComparisonResult with
   `Summary.Passed=false`
 
+#### Scenario: Baseline file corrupt or unreadable
+
+- **GIVEN** a baseline path pointing to a corrupt or unreadable file
+- **WHEN** `resolveBaselineAndCompare` is called
+- **THEN** it SHALL return a non-nil error
+
 ### Requirement: writeCrapOutputAndSummary helper
 
 `writeCrapOutputAndSummary` MUST encapsulate the output writing phase
@@ -224,8 +230,8 @@ always visible before a threshold failure.
 
 - **GIVEN** a comparison result with `Summary.Passed=false`
 - **WHEN** `evaluateCrapGates` is called
-- **THEN** it SHALL return a non-nil error describing the regression
-  WITHOUT evaluating thresholds
+- **THEN** it SHALL return the baseline regression error immediately
+  (sequential evaluation — threshold gate is not reached)
 
 #### Scenario: Threshold violation
 
@@ -286,6 +292,11 @@ after the initial `tracesToParam(addr, param)` check. The `UnOp`,
 logic that `tracesToParam` already performs recursively via
 `tracesToParamVisited`. The function's cyclomatic complexity MUST be
 5 or less after branch removal.
+
+The ≤5 target (rather than the ≤15 target used for other functions)
+reflects that after removing the unreachable branches, the function
+becomes a simple loop calling `tracesToParam` on each parameter — a
+trivially simple structure. A ≤15 target would be meaninglessly loose.
 
 Previously: Redundant branches produced complexity 13 with 0% coverage
 on the unreachable paths.

@@ -44,25 +44,25 @@ This is a pure refactoring change — no behavioral modifications, no API surfac
 
 ## Constitution Alignment
 
-Assessed against the Unbound Force org constitution.
+Assessed against the Gaze project constitution (v1.3.0).
 
-### I. Autonomous Collaboration
+### I. Accuracy
+
+**Assessment**: PASS
+
+All existing tests must pass without modification — no behavioral changes are introduced. The decomposition preserves identical control flow, output formats, and error handling. False positives and false negatives remain unchanged.
+
+### II. Minimal Assumptions
 
 **Assessment**: N/A
 
-This change is an internal structural refactoring. It does not affect artifact-based communication, inter-component interfaces, or self-describing outputs.
+This change is an internal structural refactoring. No analysis behavior, language support, or user-facing assumptions are altered.
 
-### II. Composability First
+### III. Actionable Output
 
-**Assessment**: PASS
+**Assessment**: N/A
 
-All decomposed helpers remain internal to their respective packages. No new cross-package dependencies are introduced. Each package continues to function independently.
-
-### III. Observable Quality
-
-**Assessment**: PASS
-
-Decomposition preserves all existing output formats (JSON, text). The extracted helpers do not alter machine-parseable output or provenance metadata. CRAP scores improve, which is itself an observable quality improvement.
+No output formats, report content, or metric calculations are changed. All reports continue to identify specific tests, targets, and unasserted changes.
 
 ### IV. Testability
 

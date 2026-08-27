@@ -65,6 +65,20 @@ func SetTimeout(cfg *Config, val int) {
 	cfg.Timeout = val
 }
 
+// SetDirect writes directly through a scalar pointer parameter.
+// Used to test the direct store branch of isPointerArgStore
+// (no FieldAddr or IndexAddr indirection).
+func SetDirect(p *int, val int) {
+	*p = val
+}
+
+// SetNestedValue writes to a nested struct field through a pointer
+// parameter. Used to test the nested FieldAddr chain (FieldAddr →
+// FieldAddr → param) walking in tracesToParam.
+func SetNestedValue(cfg *Config, v string) {
+	cfg.Nested.Value = v
+}
+
 // UpdateConfig mutates a receiver field.
 func (c *Config) UpdateConfig(timeout int) {
 	c.Timeout = timeout

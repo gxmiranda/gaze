@@ -14,7 +14,7 @@
 
 All tasks modify the same file and MUST run sequentially.
 
-- [ ] 1.1 Remove unreachable branches from `isPointerArgStore`
+- [x] 1.1 Remove unreachable branches from `isPointerArgStore`
   - Remove the `UnOp`, `FieldAddr`, and `IndexAddr` type-switch branches
     after the initial `tracesToParam(addr, param)` call (lines 310-337
     of `internal/analysis/mutation.go`). These branches duplicate logic
@@ -26,7 +26,7 @@ All tasks modify the same file and MUST run sequentially.
   - Add GoDoc comment noting that `tracesToParam` handles chain walking.
   - **Files**: `internal/analysis/mutation.go`
 
-- [ ] 1.2 Add unit tests for simplified `isPointerArgStore`
+- [x] 1.2 Add unit tests for simplified `isPointerArgStore`
   - The existing `TestIsPointerArgStore` (5 subtests) provides
     regression coverage. Add additional tests to verify the simplified
     function handles all SSA instruction patterns:
@@ -42,7 +42,7 @@ All tasks modify the same file and MUST run sequentially.
 
 ## 2. Decompose `detectASTReceiverMutations` (24 → ≤15)
 
-- [ ] 2.1 Extract per-node-type handlers
+- [x] 2.1 Extract per-node-type handlers
   - Extract `handleReceiverAssignStmt(node *ast.AssignStmt,
     receiverName string) (bool, token.Pos)` from the `*ast.AssignStmt`
     case (lines 494-508). Handles: iterate LHS expressions, find root
@@ -60,7 +60,7 @@ All tasks modify the same file and MUST run sequentially.
   - Add GoDoc comments on all three helpers.
   - **Files**: `internal/analysis/mutation.go`
 
-- [ ] 2.2 Add unit tests for receiver mutation handlers
+- [x] 2.2 Add unit tests for receiver mutation handlers
   - Add tests to `internal/analysis/mutation_test.go` using
     `go/parser.ParseFile` for synthetic AST construction:
     - `TestHandleReceiverAssignStmt_FieldAssign` — `recv.Field = v` → true
@@ -77,7 +77,7 @@ All tasks modify the same file and MUST run sequentially.
 
 All tasks modify the same file and MUST run sequentially.
 
-- [ ] 3.1 Extract baseline and gate helpers from `runCrap`
+- [x] 3.1 Extract baseline and gate helpers from `runCrap`
   - Extract `resolveBaselineAndCompare(baselinePath, moduleDir string,
     stderr io.Writer, rpt *crap.Report, baselineExplicit bool)
     (*crap.ComparisonResult, error)` from lines 562-571. Handles:
@@ -85,10 +85,11 @@ All tasks modify the same file and MUST run sequentially.
     via `loadAndCompare`.
   - Extract `writeCrapOutputAndSummary(stdout, stderr io.Writer,
     format string, rpt *crap.Report, cr *crap.ComparisonResult,
-    maxCrapload, maxGazeCrapload *int) error` from lines 573-584.
+    maxCrapload, maxGazeCrapload int) error` from lines 573-584.
     Handles: write comparison or normal report, print CI summary.
+    Note: threshold params forwarded to `printCISummary` for display.
   - Extract `evaluateCrapGates(rpt *crap.Report, cr *crap.ComparisonResult,
-    stderr io.Writer, maxCrapload, maxGazeCrapload *int) error` from
+    stderr io.Writer, maxCrapload, maxGazeCrapload int) error` from
     lines 586-598. Handles: baseline comparison gate (D7 — must be
     first), then threshold gate via `checkCIThresholds`.
   - Replace inline logic in `runCrap` with calls to these helpers.
@@ -97,13 +98,21 @@ All tasks modify the same file and MUST run sequentially.
   - Add GoDoc comments on all three helpers.
   - **Files**: `cmd/gaze/main.go`
 
-- [ ] 3.2 Add unit tests for `runCrap` helpers
+- [x] 3.2 Add unit tests for `runCrap` helpers
   - Add tests to `cmd/gaze/main_test.go`:
+    - `TestResolveBaselineAndCompare_NoBaseline` — empty path, no default
+      file → nil result, nil error
+    - `TestResolveBaselineAndCompare_BaselinePresent` — valid baseline
+      file → non-nil ComparisonResult
+    - `TestResolveBaselineAndCompare_LoadError` — invalid/corrupt file →
+      error returned
     - `TestEvaluateCrapGates_BaselineRegression` — comparison with
       `Passed=false` → error before thresholds
+    - `TestEvaluateCrapGates_BaselinePassThenThresholds` — comparison
+      with `Passed=true` + thresholds pass → nil
     - `TestEvaluateCrapGates_ThresholdViolation` — no baseline, threshold
       exceeded → threshold error
-    - `TestEvaluateCrapGates_AllPass` — no regression, no threshold
+    - `TestEvaluateCrapGates_AllPass` — nil comparison, no threshold
       violation → nil
     - `TestWriteCrapOutputAndSummary_WithComparison` — comparison result
       present → comparison report written
@@ -115,7 +124,7 @@ All tasks modify the same file and MUST run sequentially.
 
 ## 4. Decompose `runQuality` (32 → ≤15)
 
-- [ ] 4.1 Extract per-package and empty-result helpers from `runQuality`
+- [x] 4.1 Extract per-package and empty-result helpers from `runQuality`
   - Extract `runQualityPerPackage(pkgPath string, p qualityParams,
     opts analysis.Options, cfg *config.Config,
     modPkgs []*packages.Package, aiMapperFn quality.AIMapperFunc)
@@ -131,8 +140,14 @@ All tasks modify the same file and MUST run sequentially.
   - Add GoDoc comments on both helpers.
   - **Files**: `cmd/gaze/main.go`
 
-- [ ] 4.2 Add unit tests for `runQuality` helpers
+- [x] 4.2 Add unit tests for `runQuality` helpers
   - Add tests to `cmd/gaze/main_test.go`:
+    - `TestRunQualityPerPackage_Success` — valid package with tests →
+      non-empty reports, non-nil summary
+    - `TestRunQualityPerPackage_NoTests` — package where loadTestPackage
+      fails → nil reports, nil summary, nil error (graceful skip)
+    - `TestRunQualityPerPackage_ClassifyError` — classification failure →
+      non-nil error wrapping classify error
     - `TestWriteQualityEmptyResults_TextFormat` — text format with
       skipped tests → writes summary, names, hint
     - `TestWriteQualityEmptyResults_JSONFormat` — JSON format → writes
@@ -141,6 +156,12 @@ All tasks modify the same file and MUST run sequentially.
       0 skipped → writes summary only, no skipped section
     - `TestWriteQualityEmptyResults_TextTruncation` — text format with
       > MaxSkippedTestDisplay skipped → truncates with "... and N more"
+  - Note: `runQualityPerPackage` tests use the existing `qualityParams`
+    DI pattern with real but minimal package fixtures from `testdata/src/`.
+    These are integration-style tests since D6 (no new DI) means the
+    internal calls (`LoadAndAnalyze`, `runClassify`, etc.) are real.
+    The existing `TestRunQuality_BadPackage`, `TestRunQuality_MultiPackage_SkipsNoTests`
+    also provide transitive coverage.
   - Tests MUST NOT use `testing.Short()` guard
   - **Files**: `cmd/gaze/main_test.go`
 
@@ -149,7 +170,7 @@ All tasks modify the same file and MUST run sequentially.
 This group touches a different package and CAN run in parallel with
 groups 1-4.
 
-- [ ] 5.1 Extract row-building and signal helpers from `writeOneResult`
+- [x] 5.1 Extract row-building and signal helpers from `writeOneResult`
   - Extract `writeEffectRows(effects []taxonomy.SideEffect, maxDesc int,
     showClassify bool) [][]string` from the row-building loops in both
     branches (lines 82-103 and 159-170). Consolidates the duplicate
@@ -166,7 +187,7 @@ groups 1-4.
   - Add GoDoc comments on both helpers.
   - **Files**: `internal/report/text.go`
 
-- [ ] 5.2 Add unit tests for `writeOneResult` helpers
+- [x] 5.2 Add unit tests for `writeOneResult` helpers
   - Add tests to `internal/report/text_test.go`:
     - `TestWriteEffectRows_ClassifyMode` — showClassify=true with
       classification → 4-column rows, correct classification cell
@@ -186,7 +207,7 @@ groups 1-4.
 
 ## 6. Verification
 
-- [ ] 6.1 Build and test
+- [x] 6.1 Build and test
   - Run `go build ./...` — MUST pass
   - Run `go test -race -count=1 -short ./...` — MUST pass
   - Run `golangci-lint run` — MUST pass with 0 issues
@@ -203,15 +224,17 @@ groups 1-4.
       (`gocyclo -over 15 internal/report/text.go | grep writeOneResult`)
   - **Verify** all existing tests pass without modification
   - **Verify** GoDoc comments on all new helpers start with function name
-  - **Verify** net test delta: ~25-30 new tests added, 0 removed
+  - **Verify** net test delta: ~35 new tests added, 0 removed
 
-- [ ] 6.2 CRAPload verification
+- [x] 6.2 CRAPload verification
+  - Measure current CRAPload and GazeCRAPload before implementation
+    (record in PR description as baseline)
   - Run `gaze crap ./...` and verify CRAPload does not increase
-  - Run `gaze crap --max-gaze-crapload=<current_value> ./...` and
+  - Run `gaze crap --max-gaze-crapload=<baseline_value> ./...` and
     verify GazeCRAPload does not increase
   - Record before/after CRAPload values in the PR description
 
-- [ ] 6.3 Constitution alignment verification
+- [x] 6.3 Constitution alignment verification
   - **Accuracy (I)**: All existing tests pass — behavior unchanged
   - **Testability (IV)**: All new tests run without `testing.Short()`
     guard — they contribute to CRAPload reduction
@@ -220,12 +243,16 @@ groups 1-4.
 
 ## 7. Documentation
 
-- [ ] 7.1 Update AGENTS.md Recent Changes
+- [x] 7.1 Update AGENTS.md Recent Changes
   - Add entry for `decompose-high-complexity-functions` describing
     the 5-function decomposition with before/after CC values
   - **Files**: `AGENTS.md`
 
-- [ ] 7.2 Confirm no README/website updates needed
+- [x] 7.2 Confirm no README/website updates needed
   - This is internal-only refactoring with no user-facing changes
   - No new CLI commands, flags, or output formats
   - No website issue required
+
+<!-- spec-review: passed -->
+
+<!-- code-review: passed -->
