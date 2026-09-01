@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/unbound-force/gaze/internal/crap"
@@ -121,9 +122,10 @@ func TestCrapWithExternalAnalyzer_NotFound(t *testing.T) {
 	}
 }
 
-// TestQualityWithExternalAnalyzer_Rejected verifies that --analyzer
-// on gaze quality produces an informative error (deferred per D12).
-func TestQualityWithExternalAnalyzer_Rejected(t *testing.T) {
+// TestQualityWithExternalAnalyzer_BinaryNotFound verifies that --analyzer
+// on gaze quality attempts to run the external analyzer and fails cleanly
+// when the binary does not exist.
+func TestQualityWithExternalAnalyzer_BinaryNotFound(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 
 	err := runQuality(qualityParams{
@@ -134,9 +136,15 @@ func TestQualityWithExternalAnalyzer_Rejected(t *testing.T) {
 		stderr:       &stderr,
 	})
 	if err == nil {
-		t.Fatal("expected error for --analyzer on quality")
+		t.Fatal("expected error when analyzer binary not found")
 	}
-	if !bytes.Contains([]byte(err.Error()), []byte("not yet supported")) {
-		t.Errorf("error should mention 'not yet supported', got: %s", err.Error())
+	// The external analyzer path is now supported; error should be about
+	// the binary not being found, not about the feature being unsupported.
+	errMsg := err.Error()
+	if bytes.Contains([]byte(errMsg), []byte("not yet supported")) {
+		t.Errorf("quality --analyzer should no longer be rejected; got: %s", errMsg)
+	}
+	if !strings.Contains(errMsg, "analyzer") {
+		t.Errorf("error should mention analyzer, got: %s", errMsg)
 	}
 }

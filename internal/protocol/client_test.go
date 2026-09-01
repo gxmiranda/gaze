@@ -76,8 +76,8 @@ func TestFullSession(t *testing.T) {
 	if !initResult.Capabilities.TestMapping {
 		t.Error("capabilities.test_mapping = false, want true")
 	}
-	if initResult.Capabilities.ClassifySignals {
-		t.Error("capabilities.classify_signals = true, want false")
+	if !initResult.Capabilities.ClassifySignals {
+		t.Error("capabilities.classify_signals = false, want true")
 	}
 
 	// 2. Analyze

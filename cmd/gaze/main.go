@@ -639,7 +639,7 @@ func initExternalSession(
 		return nil, nil, fmt.Errorf("analyzer %q not found", analyzerFlag)
 	}
 
-	session := adapter.NewSession(binary, args, moduleDir, patterns, stderr)
+	session := adapter.NewSession(binary, args, moduleDir, patterns, stderr, cfg)
 	providers, err := session.Initialize()
 	if err != nil {
 		_ = session.Close()
@@ -1099,11 +1099,12 @@ func runQuality(p qualityParams) error {
 		return err
 	}
 
-	// External analyzer path: quality requires Go-specific test
-	// loading and assertion mapping that cannot be delegated.
+	// External analyzer path: when --analyzer is set, use the
+	// external protocol adapter. The external path produces a
+	// reduced report (contract coverage only — no assertion mapping,
+	// over-specification, or gap hints).
 	if p.analyzerFlag != "" {
-		return fmt.Errorf("--analyzer is not yet supported for 'gaze quality'; " +
-			"use 'gaze crap --analyzer' or 'gaze report --analyzer' instead")
+		return runQualityWithExternalAnalyzer(p)
 	}
 
 	// Resolve package patterns to concrete package paths.
@@ -1168,6 +1169,136 @@ func runQuality(p qualityParams) error {
 
 	// Write report and check CI thresholds.
 	return writeQualityReport(p, allReports, merged)
+}
+
+// runQualityWithExternalAnalyzer runs the quality command using an
+// external analyzer protocol adapter. This produces a reduced report
+// with contract coverage metrics only — no assertion mapping,
+// over-specification, or gap hints (those require Go-native SSA
+// analysis not available from external analyzers).
+func runQualityWithExternalAnalyzer(p qualityParams) error {
+	moduleDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getting working directory: %w", err)
+	}
+
+	session, providers, err := initExternalSession(
+		p.analyzerFlag, p.languageFlag, moduleDir, p.patterns, p.stderr)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = session.Close() }()
+
+	// Contract coverage requires test_mapping capability.
+	if providers.ContractCoverage == nil {
+		_, _ = fmt.Fprintln(p.stderr,
+			"warning: external analyzer does not support test_mapping — "+
+				"quality report will have no contract coverage data")
+	}
+
+	// Build the contract coverage lookup. The provider internally
+	// calls Analyze() (which triggers classify_signals when
+	// supported) and fetches test mappings.
+	var lookup func(pkg, fn string) (crap.ContractCoverageInfo, bool)
+	if providers.ContractCoverage != nil {
+		var buildErr error
+		lookup, _, buildErr = providers.ContractCoverage.Build(p.patterns, moduleDir)
+		if buildErr != nil {
+			return fmt.Errorf("building contract coverage: %w", buildErr)
+		}
+	}
+
+	// Build quality reports from the external side effect data.
+	// We don't have test function data from the external analyzer,
+	// so we produce one report per analyzed function showing its
+	// contract coverage.
+	reports, summary := buildExternalQualityReports(lookup, providers, p)
+
+	if len(reports) == 0 {
+		return handleQualityEmptyResults(p, summary)
+	}
+
+	return writeQualityReport(p, reports, summary)
+}
+
+// buildExternalQualityReports constructs quality reports from
+// external analyzer data. Each analyzed function gets a report
+// entry with its contract coverage. Returns empty reports when
+// no side effect data is available.
+func buildExternalQualityReports(
+	lookup func(pkg, fn string) (crap.ContractCoverageInfo, bool),
+	providers *adapter.Providers,
+	p qualityParams,
+) ([]taxonomy.QualityReport, *taxonomy.PackageSummary) {
+	_, _ = fmt.Fprintln(p.stderr,
+		"note: external analyzer quality report shows contract coverage only "+
+			"(no assertion mapping or over-specification data)")
+
+	if providers.SideEffects == nil {
+		return nil, &taxonomy.PackageSummary{}
+	}
+
+	// Get all analyzed functions. AllResults() triggers the
+	// analyze call (and classify_signals when supported).
+	allResults, err := providers.SideEffects.AllResults()
+	if err != nil {
+		_, _ = fmt.Fprintf(p.stderr, "warning: fetching side effects: %v\n", err)
+		return nil, &taxonomy.PackageSummary{}
+	}
+	if len(allResults) == 0 {
+		return nil, &taxonomy.PackageSummary{}
+	}
+
+	meta := taxonomy.Metadata{
+		Language:        providers.Language,
+		LanguageVersion: providers.LanguageVersion,
+		Timestamp:       time.Now(),
+	}
+
+	var reports []taxonomy.QualityReport
+	var totalCoverage float64
+
+	for _, result := range allResults {
+		cc := taxonomy.ContractCoverage{}
+		if lookup != nil {
+			info, ok := lookup(result.Target.Package, result.Target.Function)
+			if ok {
+				cc.Percentage = info.Percentage
+			}
+		}
+
+		reports = append(reports, taxonomy.QualityReport{
+			TargetFunction:   result.Target,
+			ContractCoverage: cc,
+			Metadata:         meta,
+		})
+		totalCoverage += cc.Percentage
+	}
+
+	var avgCoverage float64
+	if len(reports) > 0 {
+		avgCoverage = totalCoverage / float64(len(reports))
+	}
+
+	// Build summary — worst coverage tests sorted ascending.
+	sortedReports := make([]taxonomy.QualityReport, len(reports))
+	copy(sortedReports, reports)
+	sort.SliceStable(sortedReports, func(i, j int) bool {
+		return sortedReports[i].ContractCoverage.Percentage <
+			sortedReports[j].ContractCoverage.Percentage
+	})
+	worst := sortedReports
+	if len(worst) > 5 {
+		worst = worst[:5]
+	}
+
+	summary := &taxonomy.PackageSummary{
+		TotalTests:              len(reports),
+		AverageContractCoverage: avgCoverage,
+		WorstCoverageTests:      worst,
+	}
+
+	return reports, summary
 }
 
 // mergeSummaries combines multiple PackageSummary values into one.

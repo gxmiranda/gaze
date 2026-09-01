@@ -8,6 +8,7 @@ import (
 	"io"
 	"sync"
 
+	"github.com/unbound-force/gaze/internal/config"
 	"github.com/unbound-force/gaze/internal/protocol"
 	"github.com/unbound-force/gaze/internal/taxonomy"
 )
@@ -23,6 +24,7 @@ import (
 type ExternalSideEffectAnalyzer struct {
 	client *protocol.Client
 	caps   protocol.Capabilities
+	config *config.GazeConfig
 	stderr io.Writer
 
 	// rootDir and patterns are set during session initialization
@@ -38,17 +40,21 @@ type ExternalSideEffectAnalyzer struct {
 
 // NewExternalSideEffectAnalyzer creates a side effect analyzer that
 // delegates to the given protocol client. The capabilities determine
-// whether classify_signals is also called.
+// whether classify_signals is also called. The cfg parameter provides
+// classification thresholds for ComputeScore; when nil, DefaultConfig
+// is used.
 func NewExternalSideEffectAnalyzer(
 	client *protocol.Client,
 	caps protocol.Capabilities,
 	rootDir string,
 	patterns []string,
 	stderr io.Writer,
+	cfg *config.GazeConfig,
 ) *ExternalSideEffectAnalyzer {
 	return &ExternalSideEffectAnalyzer{
 		client:   client,
 		caps:     caps,
+		config:   cfg,
 		rootDir:  rootDir,
 		patterns: patterns,
 		stderr:   stderr,
@@ -120,6 +126,7 @@ func (a *ExternalSideEffectAnalyzer) loadBatch() error {
 	}
 
 	a.cached = convertAnalysisResults(result.Functions, a.stderr)
+	a.classifyAndMerge()
 	return nil
 }
 
@@ -144,7 +151,21 @@ func (a *ExternalSideEffectAnalyzer) loadStreaming() error {
 	}
 
 	a.cached = convertAnalysisResults(funcs, a.stderr)
+	a.classifyAndMerge()
 	return nil
+}
+
+// classifyAndMerge calls the classify_signals protocol method when
+// the external analyzer supports it, then merges the returned signals
+// into the cached analysis results. Must be called after a.cached is
+// populated. Must be called with a.mu held.
+func (a *ExternalSideEffectAnalyzer) classifyAndMerge() {
+	if !a.caps.ClassifySignals {
+		return
+	}
+
+	signals, _ := fetchClassifySignals(a.client, a.rootDir, a.patterns, a.stderr)
+	mergeClassifications(a.cached, signals, a.config)
 }
 
 // parseSideEffectStream reads JSONL-encoded AnalyzedFunction records

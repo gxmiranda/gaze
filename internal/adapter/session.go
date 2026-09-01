@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/unbound-force/gaze/internal/config"
 	"github.com/unbound-force/gaze/internal/crap"
 	"github.com/unbound-force/gaze/internal/protocol"
 )
@@ -22,6 +23,12 @@ type Providers struct {
 	// ContractCoverage is the external contract coverage provider.
 	// Nil when test_mapping capability is false.
 	ContractCoverage crap.ContractCoverageProvider
+
+	// SideEffects provides access to the side effect analyzer for
+	// commands (like gaze quality) that need direct access to
+	// per-function analysis results beyond what the contract
+	// coverage provider exposes.
+	SideEffects *ExternalSideEffectAnalyzer
 
 	// Capabilities is the analyzer's declared capabilities from
 	// the initialize handshake.
@@ -50,6 +57,7 @@ type Session struct {
 	rootDir  string
 	patterns []string
 	stderr   io.Writer
+	config   *config.GazeConfig
 
 	// caps is populated after Initialize.
 	caps     protocol.Capabilities
@@ -57,14 +65,17 @@ type Session struct {
 }
 
 // NewSession creates a new session for the given analyzer binary.
-// The binary is not spawned until Initialize is called.
-func NewSession(binary string, args []string, rootDir string, patterns []string, stderr io.Writer) *Session {
+// The binary is not spawned until Initialize is called. The cfg
+// parameter provides classification thresholds for ComputeScore;
+// when nil, DefaultConfig is used.
+func NewSession(binary string, args []string, rootDir string, patterns []string, stderr io.Writer, cfg *config.GazeConfig) *Session {
 	return &Session{
 		binary:   binary,
 		args:     args,
 		rootDir:  rootDir,
 		patterns: patterns,
 		stderr:   stderr,
+		config:   cfg,
 	}
 }
 
@@ -110,7 +121,7 @@ func (s *Session) Initialize() (*Providers, error) {
 	coverageProvider := NewExternalLineCoverageProvider(s.client)
 
 	sideEffectAnalyzer := NewExternalSideEffectAnalyzer(
-		s.client, s.caps, s.rootDir, s.patterns, s.stderr,
+		s.client, s.caps, s.rootDir, s.patterns, s.stderr, s.config,
 	)
 
 	var contractProvider crap.ContractCoverageProvider
@@ -125,6 +136,7 @@ func (s *Session) Initialize() (*Providers, error) {
 		Complexity:       complexityProvider,
 		LineCoverage:     coverageProvider,
 		ContractCoverage: contractProvider,
+		SideEffects:      sideEffectAnalyzer,
 		Capabilities:     initResult.Capabilities,
 		AnalyzerName:     initResult.AnalyzerName,
 		Language:         initResult.Language,
