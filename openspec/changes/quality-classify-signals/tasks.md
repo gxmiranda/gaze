@@ -54,4 +54,5 @@
 - [x] 6.4 Run `golangci-lint run` — no lint errors.
 - [x] 6.5 Verify constitution alignment: Accuracy (fixes systematic accuracy error from unclassified effects), Minimal Assumptions (classify_signals is capability-gated, no mandatory dependencies), Actionable Output (accurate coverage metrics guide users to real gaps), Testability (all new code testable in isolation via fake analyzer and synthetic inputs, 100% branch coverage target on classify.go).
 <!-- spec-review: passed -->
+<!-- code-review: passed -->
 <!-- scaffolded by uf vdev -->
