@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unbound-force/gaze/internal/adapter"
 	"github.com/unbound-force/gaze/internal/crap"
 )
 
@@ -181,6 +182,47 @@ func TestQualityWithExternalAnalyzer(t *testing.T) {
 		t.Errorf("total_tests = %g, want 0 (external analyzers don't provide test data)", totalTests)
 	}
 
+	// Average contract coverage should be > 0 because the fake analyzer
+	// maps test_multiply → multiply/ReturnValue, giving multiply non-zero
+	// contract coverage.
+	avgCoverage, _ := result.Summary["average_contract_coverage"].(float64)
+	if avgCoverage <= 0 {
+		t.Errorf("average_contract_coverage = %g, want > 0 (multiply has test coverage)", avgCoverage)
+	}
+
+	// Inspect individual reports: each should have a target function and
+	// contract coverage. Find the multiply function which should have
+	// non-zero coverage from the test_mapping.
+	type reportEntry struct {
+		TargetFunction struct {
+			Function string `json:"function"`
+			Package  string `json:"package"`
+		} `json:"target_function"`
+		ContractCoverage struct {
+			Percentage float64 `json:"percentage"`
+		} `json:"contract_coverage"`
+	}
+	var foundMultiply bool
+	for _, raw := range result.Reports {
+		var entry reportEntry
+		if err := json.Unmarshal(raw, &entry); err != nil {
+			t.Fatalf("parsing report entry: %v", err)
+		}
+		if entry.TargetFunction.Function == "" {
+			t.Error("report entry has empty target_function.function")
+		}
+		if entry.TargetFunction.Function == "multiply" {
+			foundMultiply = true
+			if entry.ContractCoverage.Percentage <= 0 {
+				t.Errorf("multiply contract_coverage.percentage = %g, want > 0",
+					entry.ContractCoverage.Percentage)
+			}
+		}
+	}
+	if !foundMultiply {
+		t.Error("no report entry found for function 'multiply'")
+	}
+
 	// Stderr should mention the reduced report note.
 	stderrStr := stderr.String()
 	if !strings.Contains(stderrStr, "contract coverage only") {
@@ -190,6 +232,31 @@ func TestQualityWithExternalAnalyzer(t *testing.T) {
 	// Stderr should mention the external analyzer.
 	if !strings.Contains(stderrStr, "fake-analyzer") {
 		t.Errorf("stderr should mention analyzer name, got: %s", stderrStr)
+	}
+}
+
+// TestBuildExternalQualityReports_NilSideEffects verifies that
+// buildExternalQualityReports returns empty reports and an empty summary
+// when the providers have no SideEffects analyzer (nil).
+func TestBuildExternalQualityReports_NilSideEffects(t *testing.T) {
+	var stderr bytes.Buffer
+	providers := &adapter.Providers{
+		// SideEffects is nil — no side effect data available.
+	}
+	reports, summary := buildExternalQualityReports(nil, providers, qualityParams{
+		stderr: &stderr,
+	})
+	if len(reports) != 0 {
+		t.Errorf("expected 0 reports, got %d", len(reports))
+	}
+	if summary == nil {
+		t.Fatal("expected non-nil summary")
+	}
+	if summary.TotalTests != 0 {
+		t.Errorf("TotalTests = %d, want 0", summary.TotalTests)
+	}
+	if summary.AverageContractCoverage != 0 {
+		t.Errorf("AverageContractCoverage = %g, want 0", summary.AverageContractCoverage)
 	}
 }
 
