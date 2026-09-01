@@ -122,6 +122,77 @@ func TestCrapWithExternalAnalyzer_NotFound(t *testing.T) {
 	}
 }
 
+// TestQualityWithExternalAnalyzer verifies the full external analyzer
+// quality path: session init → analyze → classify_signals → test_mapping
+// → contract coverage report. The fake analyzer provides:
+//
+//   - 3 functions: add, multiply, divide (from analyze response)
+//   - classify_signals: signals for divide/ErrorReturn and multiply/ReturnValue
+//   - test_mapping: maps test_multiply → multiply/ReturnValue
+//
+// The quality report should contain entries for each analyzed function
+// with contract coverage data.
+func TestQualityWithExternalAnalyzer(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+
+	// Use a temp directory as the "module root" — the external
+	// analyzer doesn't need a real Go module.
+	moduleDir := t.TempDir()
+
+	// Create a minimal go.mod so pattern resolution works.
+	goMod := filepath.Join(moduleDir, "go.mod")
+	if err := os.WriteFile(goMod, []byte("module fake\ngo 1.25\n"), 0o644); err != nil {
+		t.Fatalf("writing go.mod: %v", err)
+	}
+
+	err := runQuality(qualityParams{
+		patterns:     []string{"./..."},
+		format:       "json",
+		analyzerFlag: fakeBinaryPath,
+		stdout:       &stdout,
+		stderr:       &stderr,
+	})
+	if err != nil {
+		t.Fatalf("runQuality with external analyzer: %v\nstderr: %s", err, stderr.String())
+	}
+
+	// Parse the JSON output to verify quality report structure.
+	var result struct {
+		Reports []json.RawMessage      `json:"quality_reports"`
+		Summary map[string]interface{} `json:"quality_summary"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("parsing JSON output: %v\nraw: %s", err, stdout.String())
+	}
+
+	// Should have reports (one per analyzed function from the external analyzer).
+	if len(result.Reports) == 0 {
+		t.Fatal("no reports in quality output")
+	}
+
+	// Summary should have average_contract_coverage.
+	if result.Summary == nil {
+		t.Fatal("missing summary in quality output")
+	}
+
+	// TotalTests should be 0 (external analyzers don't provide test function data).
+	totalTests, _ := result.Summary["total_tests"].(float64)
+	if totalTests != 0 {
+		t.Errorf("total_tests = %g, want 0 (external analyzers don't provide test data)", totalTests)
+	}
+
+	// Stderr should mention the reduced report note.
+	stderrStr := stderr.String()
+	if !strings.Contains(stderrStr, "contract coverage only") {
+		t.Errorf("stderr should mention reduced report, got: %s", stderrStr)
+	}
+
+	// Stderr should mention the external analyzer.
+	if !strings.Contains(stderrStr, "fake-analyzer") {
+		t.Errorf("stderr should mention analyzer name, got: %s", stderrStr)
+	}
+}
+
 // TestQualityWithExternalAnalyzer_BinaryNotFound verifies that --analyzer
 // on gaze quality attempts to run the external analyzer and fails cleanly
 // when the binary does not exist.

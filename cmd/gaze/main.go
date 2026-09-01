@@ -1293,7 +1293,10 @@ func buildExternalQualityReports(
 	}
 
 	summary := &taxonomy.PackageSummary{
-		TotalTests:              len(reports),
+		// TotalTests is 0 because external analyzers don't provide test
+		// function data. The reports contain per-function contract coverage,
+		// not per-test quality assessments.
+		TotalTests:              0,
 		AverageContractCoverage: avgCoverage,
 		WorstCoverageTests:      worst,
 	}

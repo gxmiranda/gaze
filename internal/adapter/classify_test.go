@@ -57,10 +57,7 @@ func TestFetchClassifySignals_Success(t *testing.T) {
 	mustInternalInitialize(t, client)
 
 	var stderr bytes.Buffer
-	signals, err := fetchClassifySignals(client, "/tmp/project", []string{"./..."}, &stderr)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
+	signals := fetchClassifySignals(client, "/tmp/project", []string{"./..."}, &stderr)
 
 	// The fake analyzer returns at least one signal (it has a
 	// classify_signals handler even when the capability is false).
@@ -94,12 +91,9 @@ func TestFetchClassifySignals_TransportError(t *testing.T) {
 	mustInternalInitialize(t, client)
 
 	var stderr bytes.Buffer
-	signals, err := fetchClassifySignals(client, "/tmp/project", []string{"./..."}, &stderr)
+	signals := fetchClassifySignals(client, "/tmp/project", []string{"./..."}, &stderr)
 
-	// Graceful degradation: nil signals, nil error, warning on stderr.
-	if err != nil {
-		t.Fatalf("expected nil error (graceful degradation), got: %v", err)
-	}
+	// Graceful degradation: nil signals, warning on stderr.
 	if signals != nil {
 		t.Errorf("expected nil signals, got %d", len(signals))
 	}
@@ -115,17 +109,27 @@ func TestFetchClassifySignals_ProtocolError(t *testing.T) {
 	mustInternalInitialize(t, client)
 
 	var stderr bytes.Buffer
-	signals, err := fetchClassifySignals(client, "/tmp/project", []string{"./..."}, &stderr)
+	signals := fetchClassifySignals(client, "/tmp/project", []string{"./..."}, &stderr)
 
-	// Graceful degradation: nil signals, nil error, warning on stderr.
-	if err != nil {
-		t.Fatalf("expected nil error (graceful degradation), got: %v", err)
-	}
+	// Graceful degradation: nil signals, warning on stderr.
 	if signals != nil {
 		t.Errorf("expected nil signals, got %d", len(signals))
 	}
 	if !strings.Contains(stderr.String(), "warning: classify_signals failed:") {
 		t.Errorf("expected warning on stderr, got: %q", stderr.String())
+	}
+}
+
+func TestFetchClassifySignals_NilStderr(t *testing.T) {
+	// Use --crash-after=initialize to trigger an error, with nil stderr.
+	// This verifies no panic occurs when stderr is nil.
+	client := mustInternalClient(t, "--crash-after=initialize")
+	defer func() { _ = client.Close() }()
+	mustInternalInitialize(t, client)
+
+	signals := fetchClassifySignals(client, "/tmp/project", []string{"./..."}, nil)
+	if signals != nil {
+		t.Errorf("expected nil signals with nil stderr on error, got %d", len(signals))
 	}
 }
 
@@ -388,6 +392,56 @@ func TestMergeClassifications_SideEffectTypeMismatch(t *testing.T) {
 	}
 }
 
+func TestMergeClassifications_MultipleSignalsSameKey(t *testing.T) {
+	cached := []taxonomy.AnalysisResult{
+		{
+			Target: taxonomy.FunctionTarget{
+				Package:  "pkg",
+				Function: "Foo",
+			},
+			SideEffects: []taxonomy.SideEffect{
+				{
+					Type: taxonomy.ErrorReturn,
+				},
+			},
+		},
+	}
+
+	// Two signals for the same (pkg, Foo, ErrorReturn) key with different
+	// sources — both should be aggregated by ComputeScore.
+	signals := []protocol.ClassifySignalData{
+		{
+			Package:        "pkg",
+			Function:       "Foo",
+			SideEffectType: "ErrorReturn",
+			Source:         "docstring",
+			Weight:         10,
+		},
+		{
+			Package:        "pkg",
+			Function:       "Foo",
+			SideEffectType: "ErrorReturn",
+			Source:         "naming_convention",
+			Weight:         15,
+		},
+	}
+
+	mergeClassifications(cached, signals, nil)
+
+	c := cached[0].SideEffects[0].Classification
+	if c == nil {
+		t.Fatal("expected classification from aggregated signals")
+	}
+	// ErrorReturn is P0 (tier boost +25): base 50 + 25 + 10 + 15 = 100,
+	// clamped to 100. Label should be contractual.
+	if c.Label != taxonomy.Contractual {
+		t.Errorf("label = %q, want %q", c.Label, taxonomy.Contractual)
+	}
+	if c.Confidence != 100 {
+		t.Errorf("confidence = %d, want 100 (clamped)", c.Confidence)
+	}
+}
+
 func TestMergeClassifications_MultipleEffectsSameType(t *testing.T) {
 	cached := []taxonomy.AnalysisResult{
 		{
@@ -421,13 +475,21 @@ func TestMergeClassifications_MultipleEffectsSameType(t *testing.T) {
 	mergeClassifications(cached, signals, nil)
 
 	// Both effects of the same type should be classified.
+	// MapMutation is P1 (tier boost +10): base 50 + 10 + weight 30 = 90.
+	// Default contractual threshold is 80, so label should be contractual.
 	for i, e := range cached[0].SideEffects {
 		if e.Classification == nil {
-			t.Errorf("effect[%d] at %s: expected classification to be attached", i, e.Location)
+			t.Fatalf("effect[%d] at %s: expected classification to be attached", i, e.Location)
+		}
+		if e.Classification.Label != taxonomy.Contractual {
+			t.Errorf("effect[%d] label = %q, want %q", i, e.Classification.Label, taxonomy.Contractual)
+		}
+		if e.Classification.Confidence != 90 {
+			t.Errorf("effect[%d] confidence = %d, want 90", i, e.Classification.Confidence)
 		}
 	}
 
-	// Both should have the same label.
+	// Both should have the same label and confidence.
 	if cached[0].SideEffects[0].Classification.Label != cached[0].SideEffects[1].Classification.Label {
 		t.Errorf("effects have different labels: %q vs %q",
 			cached[0].SideEffects[0].Classification.Label,

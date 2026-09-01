@@ -464,23 +464,20 @@ func TestExternalSideEffectAnalyzer_ClassifySignals(t *testing.T) {
 	}
 }
 
-// TestExternalSideEffectAnalyzer_ClassifySignals_NoPreClassification verifies
-// that when an effect has no pre-existing classification from the analyze
-// response, classify_signals signals are scored through ComputeScore.
-func TestExternalSideEffectAnalyzer_ClassifySignals_NoPreClassification(t *testing.T) {
+// TestExternalSideEffectAnalyzer_ClassifySignals_CacheConsistency verifies
+// that a second Analyze() call returns the same classified data from the
+// cache without re-calling classify_signals. The "no pre-classification"
+// path (where classify_signals signals are scored through ComputeScore on
+// unclassified effects) is tested via unit tests in classify_test.go, since
+// the fake analyzer's analyze response always includes pre-classifications.
+func TestExternalSideEffectAnalyzer_ClassifySignals_CacheConsistency(t *testing.T) {
 	client := mustNewClient(t)
 	defer func() { _ = client.Close() }()
 
 	caps := mustInitialize(t, client)
 
-	// Create analyzer with caps that has ClassifySignals=true but the fake
-	// analyzer's analyze response has pre-classified all effects. To test
-	// the "no pre-classification" path, we would need the analyze response
-	// to return effects without classifications. Since the current fake analyzer
-	// always includes classifications, we verify the path through the unit
-	// tests in classify_test.go instead. Here we verify the multi-call cache:
-	// a second Analyze() call returns the same classified data without
-	// re-calling classify_signals.
+	// Verify multi-call cache: a second Analyze() call returns the same
+	// classified data without re-calling classify_signals.
 	var stderr bytes.Buffer
 	analyzer := adapter.NewExternalSideEffectAnalyzer(
 		client, caps, "/tmp/project", []string{"./..."}, &stderr, nil,
@@ -558,6 +555,42 @@ func TestExternalSideEffectAnalyzer_ClassifySignals_Disabled(t *testing.T) {
 
 	if len(results) != 3 {
 		t.Fatalf("got %d results, want 3", len(results))
+	}
+
+	// Verify pre-classified confidence values match the analyze response
+	// exactly — proving they came from the analyze response, not from
+	// classify_signals → ComputeScore. We check each effect individually
+	// since some functions have multiple effects.
+	type wantEffect struct {
+		seType     string
+		confidence int
+	}
+	wantConfidence := map[string][]wantEffect{
+		"multiply": {{"ReturnValue", 95}},
+		"divide":   {{"ReturnValue", 90}, {"ErrorReturn", 85}},
+		// add has no side effects
+	}
+	for _, r := range results {
+		wants, ok := wantConfidence[r.Target.Function]
+		if !ok {
+			continue
+		}
+		for _, w := range wants {
+			for _, e := range r.SideEffects {
+				if string(e.Type) != w.seType {
+					continue
+				}
+				if e.Classification == nil {
+					t.Errorf("%s/%s: expected pre-classification from analyze response, got nil",
+						r.Target.Function, w.seType)
+					continue
+				}
+				if e.Classification.Confidence != w.confidence {
+					t.Errorf("%s/%s: confidence = %d, want %d (from analyze response, not ComputeScore)",
+						r.Target.Function, w.seType, e.Classification.Confidence, w.confidence)
+				}
+			}
+		}
 	}
 }
 

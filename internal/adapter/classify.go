@@ -14,8 +14,8 @@ import (
 // fetchClassifySignals calls the classify_signals protocol method on
 // the external analyzer and returns the raw signal data. On failure
 // (transport error, protocol error, or unmarshal error), it warns to
-// stderr and returns (nil, nil) — callers do not need to distinguish
-// between "no signals available" and "classify_signals failed."
+// stderr and returns nil — callers do not need to distinguish between
+// "no signals available" and "classify_signals failed."
 //
 // This is a standalone function (not a method) for testability — it
 // can be tested with a mock client without constructing a full
@@ -25,7 +25,7 @@ func fetchClassifySignals(
 	rootDir string,
 	patterns []string,
 	stderr io.Writer,
-) ([]protocol.ClassifySignalData, error) {
+) []protocol.ClassifySignalData {
 	ctx, cancel := context.WithTimeout(context.Background(), protocol.AnalysisTimeout)
 	defer cancel()
 
@@ -39,10 +39,10 @@ func fetchClassifySignals(
 		if stderr != nil {
 			_, _ = fmt.Fprintf(stderr, "warning: classify_signals failed: %v\n", err)
 		}
-		return nil, nil
+		return nil
 	}
 
-	return result.Signals, nil
+	return result.Signals
 }
 
 // mergeClassifications groups signals by (Package, Function,

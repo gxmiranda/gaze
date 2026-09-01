@@ -164,7 +164,7 @@ func (a *ExternalSideEffectAnalyzer) classifyAndMerge() {
 		return
 	}
 
-	signals, _ := fetchClassifySignals(a.client, a.rootDir, a.patterns, a.stderr)
+	signals := fetchClassifySignals(a.client, a.rootDir, a.patterns, a.stderr)
 	mergeClassifications(a.cached, signals, a.config)
 }
 
