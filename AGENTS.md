@@ -86,17 +86,17 @@ proceeding with out-of-phase changes.
 - **The Guard**: Detects "Intent Drift" to ensure the business value remains intact.
 - **The Tester**: Must verify that test quality, coverage strategy, and testability are maintained.
 
-**Rule**: A Pull Request is only "Ready for Human" once the `/review-council` command returns an **APPROVE** status from all four reviewers.
+**Rule**: A Pull Request is only "Ready for Human" once the `/uf.review-council` command returns an **APPROVE** status from all four reviewers.
 
 ### Review Council as PR Prerequisite
 
-Before submitting a pull request, agents **must** run `/review-council` and resolve all REQUEST CHANGES findings until all four reviewers return APPROVE. There must be **minimal to no code changes** between the council's APPROVE verdict and the PR submission — the council reviews the final code, not a draft that changes afterward.
+Before submitting a pull request, agents **must** run `/uf.review-council` and resolve all REQUEST CHANGES findings until all four reviewers return APPROVE. There must be **minimal to no code changes** between the council's APPROVE verdict and the PR submission — the council reviews the final code, not a draft that changes afterward.
 
 Workflow:
 
 1. Complete all implementation tasks
 2. Run CI checks locally (build, test, vet)
-3. Run `/review-council` — fix any findings, re-run until APPROVE
+3. Run `/uf.review-council` — fix any findings, re-run until APPROVE
 4. Commit, push, and submit PR immediately after council APPROVE
 5. Do NOT make further code changes between APPROVE and PR submission
 
